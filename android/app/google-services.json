@@ -1,0 +1,122 @@
+{
+  "project_info": {
+    "project_number": "621284698388",
+    "project_id": "mataheko-7c9ae",
+    "storage_bucket": "mataheko-7c9ae.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621284698388:android:28fa72c32e480228dfba01",
+        "android_client_info": {
+          "package_name": "com.example.mataheko_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "621284698388-1o7q2tvnpdr6nj2gfatev22043pv9a0n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mataheko_app",
+            "certificate_hash": "9c259f2e42e5b3c203ad9052b1a0ed76f29557a2"
+          }
+        },
+        {
+          "client_id": "621284698388-94245g2000pah4bknhu6jdn6945sjc4n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mataheko_app",
+            "certificate_hash": "d7b4dd210a32d7218dca5b2d01e8a4bf8e777d34"
+          }
+        },
+        {
+          "client_id": "621284698388-p9j01o86ud9bqhvd7ekc5hh3ae7ni94n.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mataheko_app",
+            "certificate_hash": "a9229bea2bb996ae70ea23701ccf326393c94605"
+          }
+        },
+        {
+          "client_id": "621284698388-t53ptqndqirdo1rvsii7ajclcoducva0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjJLUamSVsXny-53tFaEuDBfSCMANK1Ho"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "621284698388-t53ptqndqirdo1rvsii7ajclcoducva0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "621284698388-ho6gdm9jpruf9pe84lh5n6pmk73mgrn1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.matahekoApp"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621284698388:android:da399048281db856dfba01",
+        "android_client_info": {
+          "package_name": "com.mataheko.community"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "621284698388-800ug26s5mo96b8s071i6i3j1p7nffuk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mataheko.community",
+            "certificate_hash": "9c259f2e42e5b3c203ad9052b1a0ed76f29557a2"
+          }
+        },
+        {
+          "client_id": "621284698388-gn04o413fs3gqmjtq5csbhrdridfkkqb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mataheko.community",
+            "certificate_hash": "d7b4dd210a32d7218dca5b2d01e8a4bf8e777d34"
+          }
+        },
+        {
+          "client_id": "621284698388-t53ptqndqirdo1rvsii7ajclcoducva0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjJLUamSVsXny-53tFaEuDBfSCMANK1Ho"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "621284698388-t53ptqndqirdo1rvsii7ajclcoducva0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "621284698388-ho6gdm9jpruf9pe84lh5n6pmk73mgrn1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.matahekoApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

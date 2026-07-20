@@ -1,0 +1,318 @@
+import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../models/mechanic.dart';
+import '../../services/photo_upload_service.dart';
+
+class AddMechanicScreen extends StatefulWidget {
+  const AddMechanicScreen({super.key});
+
+  @override
+  State<AddMechanicScreen> createState() => _AddMechanicScreenState();
+}
+
+class _AddMechanicScreenState extends State<AddMechanicScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _workshopController = TextEditingController();
+  final _areaController = TextEditingController();
+  final _experienceController = TextEditingController();
+  final _ghanaCardController = TextEditingController();
+
+  final Set<String> _selectedVehicleTypes = {};
+  final Set<String> _selectedBrands = {};
+  final Set<String> _selectedServices = {};
+  bool _offersRoadsideService = false;
+
+  File? _mechanicPhoto;
+  File? _ghanaCardPhoto;
+  final _picker = ImagePicker();
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _pickImage(bool isMechanicPhoto) async {
+    final picked = await _picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, imageQuality: 80);
+    if (picked == null) return;
+    setState(() {
+      if (isMechanicPhoto) {
+        _mechanicPhoto = File(picked.path);
+      } else {
+        _ghanaCardPhoto = File(picked.path);
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedVehicleTypes.isEmpty) {
+      setState(() => _error = 'Select at least one vehicle type.');
+      return;
+    }
+    if (_mechanicPhoto == null) {
+      setState(() => _error = 'Please add a photo of the mechanic.');
+      return;
+    }
+    if (_ghanaCardPhoto == null) {
+      setState(() => _error = 'Please add a photo of the Ghana Card.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('mechanics').doc();
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown_admin';
+
+      final photoUrl = await PhotoUploadService.uploadPhoto(
+        uid: adminUid,
+        photo: _mechanicPhoto!,
+        type: 'rider_photos', // shared "public profile photo" bucket
+      );
+      final ghanaCardPhotoUrl = await PhotoUploadService.uploadGhanaCardPhoto(
+        uid: adminUid,
+        photo: _ghanaCardPhoto!,
+      );
+
+      final mechanic = Mechanic(
+        id: docRef.id,
+        name: _nameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        workshopName: _workshopController.text.trim(),
+        stationArea: _areaController.text.trim(),
+        yearsOfExperience: int.tryParse(_experienceController.text.trim()) ?? 0,
+        vehicleTypes: _selectedVehicleTypes.toList(),
+        brandSpecialties: _selectedBrands.toList(),
+        servicesOffered: _selectedServices.toList(),
+        offersRoadsideService: _offersRoadsideService,
+        rating: 0.0,
+        reviewCount: 0,
+        isApproved: true, // admin-added mechanics are approved immediately
+        isPending: false,
+        ghanaCardNumber: _ghanaCardController.text.trim(),
+        photoUrl: photoUrl,
+        ghanaCardPhotoUrl: ghanaCardPhotoUrl,
+      );
+
+      await docRef.set(mechanic.toMap());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mechanic added')));
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      setState(() => _error = 'Failed to save mechanic. Please try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _workshopController.dispose();
+    _areaController.dispose();
+    _experienceController.dispose();
+    _ghanaCardController.dispose();
+    super.dispose();
+  }
+
+  Widget _chipSection(String title, List<String> options, Set<String> selected) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((opt) {
+            final isSelected = selected.contains(opt);
+            return FilterChip(
+              label: Text(opt, style: const TextStyle(fontSize: 12)),
+              selected: isSelected,
+              onSelected: (val) {
+                setState(() {
+                  if (val) {
+                    selected.add(opt);
+                  } else {
+                    selected.remove(opt);
+                  }
+                });
+              },
+              selectedColor: Colors.green[100],
+              checkmarkColor: Colors.green[800],
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Add Mechanic')),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: GestureDetector(
+                    onTap: () => _pickImage(true),
+                    child: CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.green[50],
+                      backgroundImage: _mechanicPhoto != null ? FileImage(_mechanicPhoto!) : null,
+                      child: _mechanicPhoto == null
+                          ? Icon(Icons.add_a_photo, color: Colors.green[700], size: 28)
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Center(
+                  child: Text('Mechanic photo (shown to app users)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ),
+                const SizedBox(height: 20),
+
+                TextFormField(
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Mechanic Name', border: OutlineInputBorder()),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _workshopController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Workshop / Garage Name', border: OutlineInputBorder()),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'Phone Number', border: OutlineInputBorder()),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _areaController,
+                  decoration: const InputDecoration(labelText: 'Area / Location', border: OutlineInputBorder()),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _experienceController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Years of Experience',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+
+                const SizedBox(height: 20),
+                _chipSection('Vehicle Types Serviced', vehicleTypeOptions, _selectedVehicleTypes),
+                const SizedBox(height: 20),
+                _chipSection('Brand Specialties (optional)', brandSpecialtyOptions, _selectedBrands),
+                const SizedBox(height: 20),
+                _chipSection('Services Offered', serviceOptions, _selectedServices),
+
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Offers Roadside / Breakdown Service', style: TextStyle(fontSize: 13)),
+                  value: _offersRoadsideService,
+                  activeColor: Colors.green[700],
+                  onChanged: (val) => setState(() => _offersRoadsideService = val),
+                ),
+
+                const SizedBox(height: 20),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.lock_outline, size: 14, color: Colors.redAccent),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Identity record — admin only, never shown to app users',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _ghanaCardController,
+                  decoration: const InputDecoration(
+                    labelText: 'Ghana Card Number',
+                    hintText: 'GHA-XXXXXXXXX-X',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => _pickImage(false),
+                  child: Container(
+                    height: 140,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.red[50],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red[100]!),
+                    ),
+                    child: _ghanaCardPhoto == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.badge_outlined, color: Colors.red[300], size: 32),
+                              const SizedBox(height: 6),
+                              Text('Tap to add Ghana Card photo', style: TextStyle(color: Colors.red[300], fontSize: 12)),
+                            ],
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(_ghanaCardPhoto!, fit: BoxFit.cover, width: double.infinity),
+                          ),
+                  ),
+                ),
+
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ],
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _loading ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _loading
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Save Mechanic'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
