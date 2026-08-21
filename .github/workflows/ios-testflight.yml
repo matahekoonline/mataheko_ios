@@ -9,7 +9,7 @@ on:
 jobs:
   build-ios:
     name: Build Mataheko iOS
-    runs-on: macos-15-intel
+    runs-on: macos-15
 
     steps:
       - name: Checkout repository
@@ -30,20 +30,94 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Check Flutter project
-        run: flutter doctor -v
-
-      - name: Build iOS
-        run: flutter build ios --release --no-codesign
-
-      - name: Package iOS build
+      - name: Install Apple certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          mkdir -p build/ios-artifact
-          cp -R build/ios/iphoneos/Runner.app build/ios-artifact/
+          CERTIFICATE_PATH="$RUNNER_TEMP/apple_distribution.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
 
-      - name: Upload iOS build artifact
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain \
+            -p "" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "" \
+            "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "" \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains \
+            -d user \
+            -s "$KEYCHAIN_PATH"
+
+          security default-keychain \
+            -s "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        env:
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          mkdir -p "$PROFILE_DIR"
+
+          cp "$PROFILE_PATH" "$PROFILE_DIR/3d5df408-bff9-4cf9-adb1-fbe73967e16e.mobileprovision"
+
+      - name: Verify signing assets
+        run: |
+          echo "=== Signing identities ==="
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$RUNNER_TEMP/build.keychain-db"
+
+          echo ""
+          echo "=== Provisioning profiles ==="
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build signed IPA
+        run: |
+          flutter build ipa \
+            --release \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: mataheko-ios-build
-          path: build/ios-artifact
+          name: mataheko-ios-ipa
+          path: build/ios/ipa/*.ipa
+          retention-days: 7
+
+      - name: Upload XCArchive
+        uses: actions/upload-artifact@v4
+        with:
+          name: mataheko-ios-archive
+          path: build/ios/archive/*.xcarchive
           retention-days: 7
