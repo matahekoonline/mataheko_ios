@@ -1,3 +1,4 @@
+```yaml
 name: Mataheko iOS Build
 
 on:
@@ -11,10 +12,22 @@ jobs:
     name: Build Mataheko iOS
     runs-on: macos-15
 
+    env:
+      BUNDLE_ID: com.mataheko.community
+      TEAM_ID: 7YZFL477VG
+      PROFILE_NAME: Mataheko App
+      PROFILE_UUID: 3d5df408-bff9-4cf9-adb1-fbe73967e16e
+
     steps:
+      # ---------------------------------------------------------
+      # 1. CHECKOUT
+      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ---------------------------------------------------------
+      # 2. FLUTTER
+      # ---------------------------------------------------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -22,26 +35,40 @@ jobs:
           architecture: x64
           cache: true
 
-      - name: Show Flutter version
+      - name: Show Flutter and Dart versions
         run: |
           flutter --version
           dart --version
+          xcodebuild -version
 
+      # ---------------------------------------------------------
+      # 3. FLUTTER DEPENDENCIES
+      # ---------------------------------------------------------
       - name: Get Flutter dependencies
-        run: flutter pub get
+        run: |
+          flutter clean
+          flutter pub get
 
-      - name: Install Apple certificate
+      # ---------------------------------------------------------
+      # 4. INSTALL APPLE DISTRIBUTION CERTIFICATE
+      # ---------------------------------------------------------
+      - name: Install Apple Distribution certificate
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          set -e
+
           CERTIFICATE_PATH="$RUNNER_TEMP/apple_distribution.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="mataheko-build-keychain"
+
+          echo "Creating temporary keychain..."
 
           echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
 
           security create-keychain \
-            -p "" \
+            -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
           security set-keychain-settings \
@@ -49,8 +76,10 @@ jobs:
             "$KEYCHAIN_PATH"
 
           security unlock-keychain \
-            -p "" \
+            -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
+
+          echo "Importing Apple certificate..."
 
           security import "$CERTIFICATE_PATH" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
@@ -62,62 +91,319 @@ jobs:
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
-            -k "" \
+            -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
           security list-keychains \
             -d user \
-            -s "$KEYCHAIN_PATH"
+            -s "$KEYCHAIN_PATH" \
+            "$(security default-keychain -d user | tr -d '"')"
 
           security default-keychain \
             -s "$KEYCHAIN_PATH"
 
-      - name: Install provisioning profile
-        env:
-          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          echo "Certificate installed successfully."
+
+      # ---------------------------------------------------------
+      # 5. VERIFY APPLE DISTRIBUTION CERTIFICATE
+      # ---------------------------------------------------------
+      - name: Verify Apple signing identity
         run: |
-          PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          set -e
 
-          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          echo "========================================"
+          echo "AVAILABLE CODE SIGNING IDENTITIES"
+          echo "========================================"
 
-          mkdir -p "$PROFILE_DIR"
-
-          cp "$PROFILE_PATH" "$PROFILE_DIR/3d5df408-bff9-4cf9-adb1-fbe73967e16e.mobileprovision"
-
-      - name: Verify signing assets
-        run: |
-          echo "=== Signing identities ==="
           security find-identity \
             -v \
             -p codesigning \
             "$RUNNER_TEMP/build.keychain-db"
 
           echo ""
-          echo "=== Provisioning profiles ==="
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "========================================"
+          echo "CHECKING FOR APPLE DISTRIBUTION"
+          echo "========================================"
 
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$RUNNER_TEMP/build.keychain-db" \
+            | grep "Apple Distribution"
+
+          echo ""
+          echo "Apple Distribution certificate found."
+
+      # ---------------------------------------------------------
+      # 6. INSTALL PROVISIONING PROFILE
+      # ---------------------------------------------------------
+      - name: Install provisioning profile
+        env:
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -e
+
+          PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_DEST="$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
+
+          echo "Decoding provisioning profile..."
+
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" \
+            | base64 --decode > "$PROFILE_PATH"
+
+          mkdir -p "$PROFILE_DIR"
+
+          echo "Installing provisioning profile..."
+
+          cp "$PROFILE_PATH" "$PROFILE_DEST"
+
+          echo ""
+          echo "Provisioning profile installed:"
+          echo "$PROFILE_DEST"
+
+      # ---------------------------------------------------------
+      # 7. READ AND VERIFY PROVISIONING PROFILE
+      # ---------------------------------------------------------
+      - name: Verify provisioning profile
+        run: |
+          set -e
+
+          PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
+
+          echo "========================================"
+          echo "PROVISIONING PROFILE INFORMATION"
+          echo "========================================"
+
+          security cms \
+            -D \
+            -i "$PROFILE_PATH" \
+            > "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Profile Name:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :Name" \
+            "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Profile UUID:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :UUID" \
+            "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Team Identifier:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :TeamIdentifier:0" \
+            "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Application Identifier:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :Entitlements:application-identifier" \
+            "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Expiration Date:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :ExpirationDate" \
+            "$RUNNER_TEMP/profile.plist"
+
+          echo ""
+          echo "Provisioned Devices:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :ProvisionedDevices" \
+            "$RUNNER_TEMP/profile.plist" \
+            2>/dev/null || echo "Not present - App Store distribution profile"
+
+          echo ""
+          echo "========================================"
+          echo "VALIDATING PROFILE"
+          echo "========================================"
+
+          ACTUAL_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          ACTUAL_UUID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          ACTUAL_APP_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:application-identifier" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          EXPECTED_APP_ID="${TEAM_ID}.${BUNDLE_ID}"
+
+          if [ "$ACTUAL_NAME" != "$PROFILE_NAME" ]; then
+            echo "ERROR: Provisioning profile name is incorrect."
+            echo "Expected: $PROFILE_NAME"
+            echo "Actual:   $ACTUAL_NAME"
+            exit 1
+          fi
+
+          if [ "$ACTUAL_UUID" != "$PROFILE_UUID" ]; then
+            echo "ERROR: Provisioning profile UUID is incorrect."
+            echo "Expected: $PROFILE_UUID"
+            echo "Actual:   $ACTUAL_UUID"
+            exit 1
+          fi
+
+          if [ "$ACTUAL_APP_ID" != "$EXPECTED_APP_ID" ]; then
+            echo "ERROR: Application identifier is incorrect."
+            echo "Expected: $EXPECTED_APP_ID"
+            echo "Actual:   $ACTUAL_APP_ID"
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "PROFILE VALIDATION PASSED"
+          echo "========================================"
+          echo "Profile:    $ACTUAL_NAME"
+          echo "UUID:       $ACTUAL_UUID"
+          echo "Bundle ID:  $BUNDLE_ID"
+          echo "Team ID:    $TEAM_ID"
+
+      # ---------------------------------------------------------
+      # 8. VERIFY FLUTTER IOS BUNDLE ID
+      # ---------------------------------------------------------
+      - name: Verify iOS Bundle Identifier
+        run: |
+          set -e
+
+          echo "Checking Xcode project bundle identifier..."
+
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -showBuildSettings \
+            | grep "PRODUCT_BUNDLE_IDENTIFIER"
+
+          echo ""
+          echo "Expected Bundle ID:"
+          echo "$BUNDLE_ID"
+
+      # ---------------------------------------------------------
+      # 9. INSTALL COCOAPODS
+      # ---------------------------------------------------------
       - name: Install CocoaPods
         run: |
+          set -e
+
           cd ios
+
           pod install --repo-update
 
+      # ---------------------------------------------------------
+      # 10. SHOW XCODE SIGNING SETTINGS
+      # ---------------------------------------------------------
+      - name: Verify Xcode signing configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "XCODE SIGNING SETTINGS"
+          echo "========================================"
+
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -configuration Release \
+            -showBuildSettings \
+            | grep -E \
+              "PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER"
+
+      # ---------------------------------------------------------
+      # 11. BUILD SIGNED IPA
+      # ---------------------------------------------------------
       - name: Build signed IPA
         run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILDING MATAHEKO IOS IPA"
+          echo "========================================"
+
           flutter build ipa \
             --release \
-            --export-options-plist=ios/ExportOptions.plist
+            --export-options-plist=ios/ExportOptions.plist \
+            --build-name=1.0.0 \
+            --build-number=${{ github.run_number }}
 
-      - name: Upload IPA
+          echo ""
+          echo "========================================"
+          echo "IPA BUILD COMPLETED"
+          echo "========================================"
+
+          ls -lah build/ios/ipa/
+          ls -lah build/ios/archive/
+
+      # ---------------------------------------------------------
+      # 12. VERIFY IPA EXISTS
+      # ---------------------------------------------------------
+      - name: Verify IPA
+        run: |
+          set -e
+
+          IPA_COUNT=$(find build/ios/ipa -name "*.ipa" | wc -l | tr -d ' ')
+
+          if [ "$IPA_COUNT" -eq 0 ]; then
+            echo "ERROR: No IPA was created."
+            exit 1
+          fi
+
+          echo "IPA successfully created:"
+          find build/ios/ipa -name "*.ipa" -print
+
+      # ---------------------------------------------------------
+      # 13. UPLOAD IPA
+      # ---------------------------------------------------------
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-ipa
           path: build/ios/ipa/*.ipa
+          if-no-files-found: error
           retention-days: 7
 
-      - name: Upload XCArchive
+      # ---------------------------------------------------------
+      # 14. UPLOAD XCARCHIVE
+      # ---------------------------------------------------------
+      - name: Upload XCArchive artifact
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-archive
           path: build/ios/archive/*.xcarchive
+          if-no-files-found: error
           retention-days: 7
+
+      # ---------------------------------------------------------
+      # 15. CLEAN UP SIGNING FILES
+      # ---------------------------------------------------------
+      - name: Clean up signing assets
+        if: ${{ always() }}
+        run: |
+          set +e
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+
+          echo "Cleaning up signing assets..."
+
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+          rm -f "$PROFILE_PATH"
+          rm -f "$RUNNER_TEMP/apple_distribution.p12"
+          rm -f "$RUNNER_TEMP/Mataheko_App.mobileprovision"
+          rm -f "$RUNNER_TEMP/profile.plist"
+
+          echo "Cleanup completed."
+```
