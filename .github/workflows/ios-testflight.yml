@@ -1,0 +1,44 @@
+name: Mataheko iOS Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-ios:
+    name: Build Mataheko iOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: pubspec.yaml
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Check Flutter project
+        run: flutter doctor -v
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
+
+      - name: Package iOS build
+        run: |
+          mkdir -p build/ios-artifact
+          cp -R build/ios/iphoneos/Runner.app build/ios-artifact/
+
+      - name: Upload iOS build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mataheko-ios-build
+          path: build/ios-artifact
+          retention-days: 7
