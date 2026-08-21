@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/hero_banner.dart';
+import '../models/hero_banner_settings.dart';
 
 /// Firestore-backed hero banner management. Collection: `hero_banners`.
 ///
@@ -15,6 +16,31 @@ class HeroBannerService {
 
   final CollectionReference<Map<String, dynamic>> _collection =
       FirebaseFirestore.instance.collection('hero_banners');
+
+
+  final DocumentReference<Map<String, dynamic>> _settingsRef =
+      FirebaseFirestore.instance.collection('app_settings').doc('hero_banner');
+
+  Stream<HeroBannerSettings> settingsStream() {
+    return _settingsRef.snapshots().map(
+      (snap) => HeroBannerSettings.fromMap(snap.data()),
+    );
+  }
+
+  Future<HeroBannerSettings> getSettings() async {
+    final snap = await _settingsRef.get();
+    return HeroBannerSettings.fromMap(snap.data());
+  }
+
+  Future<void> updateSettings(HeroBannerSettings settings) async {
+    await _settingsRef.set(
+      {
+        ...settings.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
 
   /// Home screen: active banners only, ordered. Filtering `active` here in
   /// Dart (rather than as a second Firestore `where` alongside `orderBy`)

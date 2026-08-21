@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/tailor.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class TailorDetailScreen extends StatelessWidget {
   final Tailor tailor;
@@ -159,6 +160,9 @@ class TailorDetailScreen extends StatelessWidget {
                           .toList(),
                     ),
             ),
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'tailors', providerId: tailor.id, initialRating: tailor.rating, initialReviewCount: tailor.reviewCount),
 
             const SizedBox(height: 32),
             Row(

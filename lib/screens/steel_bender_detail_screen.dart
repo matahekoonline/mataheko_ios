@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/steel_bender.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class SteelBenderDetailScreen extends StatelessWidget {
   final SteelBender bender;
@@ -147,6 +148,8 @@ class SteelBenderDetailScreen extends StatelessWidget {
                       );
                     }).toList(),
                   ),
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'steel_benders', providerId: bender.uid, initialRating: bender.rating, initialReviewCount: bender.reviewCount),
             const SizedBox(height: 32),
 
             Row(

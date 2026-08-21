@@ -1,13 +1,4 @@
-/// Unified wrapper around a single provider doc from any category
-/// collection (okada_riders, mechanics, steel_benders, carpenters,
-/// tailors, plumbers, electricians).
-///
-/// Field *names* differ per collection -- e.g. the display name is
-/// 'riderName' in okada_riders, 'fullName' in steel_benders/carpenters,
-/// 'name' in mechanics/tailors/plumbers/electricians -- so this class
-/// normalizes the handful of fields ManageProvidersScreen needs for the
-/// list view, while keeping the full raw [data] map around so
-/// ProviderEditScreen can edit every field generically.
+/// Normalized provider record used by the admin tools.
 class AdminProviderRecord {
   final String id;
   final String category;
@@ -21,31 +12,65 @@ class AdminProviderRecord {
     required this.data,
   });
 
-  String get displayName => (data['riderName'] ??
-          data['fullName'] ??
-          data['name'] ??
-          data['businessName'] ??
-          'Unnamed')
-      as String;
+  String get displayName {
+    final value = data['riderName'] ??
+        data['fullName'] ??
+        data['name'] ??
+        data['businessName'] ??
+        data['landlordName'];
 
-  String get phoneNumber => (data['phoneNumber'] ?? '') as String;
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? 'Unnamed provider' : text;
+  }
 
-  String? get photoUrl =>
-      (data['photoUrl'] ?? data['riderPhotoUrl']) as String?;
+  String get phoneNumber {
+    return (data['phoneNumber'] ??
+            data['phone'] ??
+            data['contactNumber'] ??
+            '')
+        .toString();
+  }
 
-  /// True for both the okada_riders 'verificationStatus' string shape and
-  /// every other category's isApproved/isPending boolean shape.
+  /// Handles the different photo field names used by provider collections.
+  /// Welder uses `photoUrl`, while Okada uses `riderPhotoUrl`.
+  String? get photoUrl {
+    final candidates = [
+      data['photoUrl'],
+      data['riderPhotoUrl'],
+      data['profilePhotoUrl'],
+      data['imageUrl'],
+    ];
+
+    for (final value in candidates) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+
+    final rawPhotos = data['photoUrls'];
+    if (rawPhotos is List) {
+      for (final value in rawPhotos) {
+        final text = value?.toString().trim();
+        if (text != null && text.isNotEmpty) return text;
+      }
+    }
+
+    return null;
+  }
+
   bool get isApproved {
-    if (collection == 'okada_riders') {
-      return data['verificationStatus'] == 'approved';
+    if (data['verificationStatus'] != null) {
+      return data['verificationStatus'] == 'approved' ||
+          data['verificationStatus'] == 'verified';
     }
     return data['isApproved'] == true;
   }
 
-  /// Doc id doubles as the linked users/{uid} doc id whenever this
-  /// provider self-registered (all registerAsX methods key the doc by
-  /// uid). Admin-added providers get an auto-generated id with no linked
-  /// user doc -- deleting a non-existent users/{id} doc is a harmless
-  /// no-op, so callers can pass this through unconditionally.
+  bool get isPending {
+    if (data['verificationStatus'] != null) {
+      return data['verificationStatus'] == 'pending';
+    }
+    return data['isPending'] == true || !isApproved;
+  }
+
   String get possibleUid => id;
 }

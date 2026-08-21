@@ -50,6 +50,7 @@ class AddWelderScreen extends StatefulWidget {
 }
 
 class _AddWelderScreenState extends State<AddWelderScreen> {
+
   final _formKey = GlobalKey<FormState>();
 
   final _nameController = TextEditingController();
@@ -143,7 +144,7 @@ class _AddWelderScreenState extends State<AddWelderScreen> {
       String? photoUrl;
       if (_photoFile != null) {
         final uploadKey = 'admin_${DateTime.now().millisecondsSinceEpoch}';
-        photoUrl = await PhotoUploadService.uploadRiderPhoto(uid: uploadKey, photo: _photoFile!);
+        photoUrl = await PhotoUploadService.uploadWelderPhoto(uid: uploadKey, photo: _photoFile!);
       }
 
       await AuthService.instance.addWelderByAdmin(

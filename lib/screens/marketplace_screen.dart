@@ -46,7 +46,10 @@ class MarketplaceScreen extends StatelessWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const AccountScreen()),
+                MaterialPageRoute(
+                  settings: const RouteSettings(name: '/account'),
+                  builder: (_) => const AccountScreen(),
+                ),
               );
             },
           ),

@@ -214,15 +214,53 @@ class TeamStanding {
 }
 
 class TopScorer {
+  final String playerId;
   final String playerName;
+  final String teamId;
   final String teamName;
+  final String? playerPhotoUrl;
+  final String? teamLogoUrl;
   final int goals;
 
   const TopScorer({
+    this.playerId = '',
     required this.playerName,
+    this.teamId = '',
     required this.teamName,
+    this.playerPhotoUrl,
+    this.teamLogoUrl,
     required this.goals,
   });
+}
+
+/// Sponsor logo shown in the football league footer.
+class LeagueSponsor {
+  final String id;
+  final String sportType;
+  final String name;
+  final String logoUrl;
+  final int sortOrder;
+  final bool active;
+
+  const LeagueSponsor({
+    required this.id,
+    required this.sportType,
+    required this.name,
+    required this.logoUrl,
+    required this.sortOrder,
+    required this.active,
+  });
+
+  factory LeagueSponsor.fromMap(String id, Map<String, dynamic> map) {
+    return LeagueSponsor(
+      id: id,
+      sportType: map['sportType'] as String? ?? 'football',
+      name: map['name'] as String? ?? '',
+      logoUrl: map['logoUrl'] as String? ?? '',
+      sortOrder: (map['sortOrder'] as num?)?.toInt() ?? 0,
+      active: map['active'] as bool? ?? true,
+    );
+  }
 }
 
 class Fixture {

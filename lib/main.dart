@@ -1,10 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import 'firebase_options.dart';
 import 'screens/main_screen.dart';
+import 'screens/auth_gate.dart';
+import 'services/notification_service.dart';
+import 'services/auth_service.dart';
+
+class AppRouteObserver extends NavigatorObserver {
+  static final ValueNotifier<String?> currentRoute =
+      ValueNotifier<String?>(null);
+
+  void _set(Route<dynamic>? route) {
+    currentRoute.value = route?.settings.name;
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _set(route);
+    super.didPush(route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _set(previousRoute);
+    super.didPop(route, previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    _set(newRoute);
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FirebaseMessaging.onBackgroundMessage(
+    firebaseMessagingBackgroundHandler,
+  );
+
   runApp(const MatahekoApp());
 }
 
@@ -17,6 +54,7 @@ class MatahekoApp extends StatelessWidget {
       title: 'Mataheko-Afienya',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
+      navigatorObservers: [AppRouteObserver()],
       home: const AppStartupScreen(),
     );
   }
@@ -47,9 +85,27 @@ class _AppStartupScreenState extends State<AppStartupScreen> {
         options: DefaultFirebaseOptions.currentPlatform,
       ).timeout(const Duration(seconds: 10));
 
+      // Sets up FCM permission request + the foreground local-notification
+      // listener. Without this call, notify_admin.php can fire pushes all
+      // day and the app will never display or even receive them.
+      await NotificationService.instance.initialize();
+
+      // Registers/refreshes the admin's FCM token whenever auth state
+      // changes (login, logout, app relaunch with a persisted session) --
+      // isAdmin() inside registerAdminDeviceToken() already no-ops for
+      // non-admins, so this is safe to call unconditionally here.
+      AuthService.instance.authStateChanges.listen((user) {
+        if (user != null) {
+          NotificationService.instance.registerAdminDeviceToken();
+          NotificationService.instance.startAdminActionMonitor();
+        } else {
+          NotificationService.instance.stopAdminActionMonitor();
+        }
+      });
+
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScreen()),
+        MaterialPageRoute(builder: (_) => const AuthGate()),
       );
     } catch (e) {
       debugPrint('Firebase init failed or timed out: $e');

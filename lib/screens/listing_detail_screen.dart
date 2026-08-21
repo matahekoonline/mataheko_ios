@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/listing.dart';
+import '../services/activity_service.dart';
 
 class ListingDetailScreen extends StatelessWidget {
   final Listing listing;
@@ -27,7 +28,35 @@ class ListingDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(listing.name)),
+      appBar: AppBar(
+        title: Text(listing.name),
+        actions: [
+          StreamBuilder<bool>(
+            stream: ActivityService.instance.isSavedStream(itemId: listing.id, type: 'listing'),
+            builder: (context, snapshot) {
+              final saved = snapshot.data == true;
+              return IconButton(
+                tooltip: saved ? 'Remove from saved' : 'Save listing',
+                icon: Icon(saved ? Icons.favorite : Icons.favorite_border),
+                onPressed: () async {
+                  if (saved) {
+                    await ActivityService.instance.removeSavedItem(itemId: listing.id, type: 'listing');
+                  } else {
+                    await ActivityService.instance.saveItem(
+                      itemId: listing.id,
+                      type: 'listing',
+                      title: listing.name,
+                      subtitle: listing.category,
+                      imageUrl: listing.photoUrl ?? '',
+                      metadata: {'locationText': listing.locationText},
+                    );
+                  }
+                },
+              );
+            },
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

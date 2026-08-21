@@ -5,6 +5,7 @@ import 'package:mataheko/screens/welders_screen.dart';
 import '../data/sample_listings.dart';
 import '../models/listing.dart';
 import '../models/hero_banner.dart';
+import '../models/hero_banner_settings.dart';
 import '../widgets/hero_section.dart';
 import '../services/auth_service.dart';
 import '../services/hero_banner_service.dart';
@@ -22,10 +23,12 @@ import 'masons_screen.dart';
 import 'teachers_screen.dart';
 import 'home_cooks_screen.dart';
 import 'hotels_screen.dart';
+import 'aboboyaa_screen.dart';
 import 'admin_dashboard_screen.dart';
 import '../models/category.dart';
 import '../services/category_service.dart';
 import '../widgets/login_sheet.dart';
+import 'ride_along_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -155,9 +158,23 @@ class HomeScreen extends StatelessWidget {
                   debugPrint('Hero banners stream error: ${bannerSnapshot.error}');
                 }
                 final banners = bannerSnapshot.data ?? const <HeroBanner>[];
-                return HeroSection(
-                  banners: banners,
-                  onBannerTap: (banner) => _handleBannerTap(context, banner),
+                return StreamBuilder<HeroBannerSettings>(
+                  stream: HeroBannerService.instance.settingsStream(),
+                  builder: (context, settingsSnapshot) {
+                    final settings = settingsSnapshot.data ??
+                        const HeroBannerSettings();
+                    return HeroSection(
+                      banners: banners,
+                      autoPlayInterval:
+                          Duration(seconds: settings.slideIntervalSeconds),
+                      transitionDuration: Duration(
+                        milliseconds:
+                            settings.transitionDurationMilliseconds,
+                      ),
+                      onBannerTap: (banner) =>
+                          _handleBannerTap(context, banner),
+                    );
+                  },
                 );
               },
             ),
@@ -217,6 +234,14 @@ class HomeScreen extends StatelessWidget {
                     builder: (context, categorySnapshot) {
                       if (categorySnapshot.hasError) {
                         debugPrint('Categories stream error: ${categorySnapshot.error}');
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'Category error:\n${categorySnapshot.error}',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        );
                       }
                       final liveCategories = categorySnapshot.data ?? const <Category>[];
                       if (categorySnapshot.connectionState == ConnectionState.waiting) {
@@ -342,9 +367,7 @@ void _handleBannerTap(BuildContext context, HeroBanner banner) {
   }
 }
 
-/// Same routing table as _CategoryCard's onTap, pulled out so both the
-/// category grid and category-linked hero banners stay in sync.
-///
+
 /// Matches loosely (case-insensitive, singular/plural tolerant) since
 /// category names now come from Firestore and are typed freely by admins
 /// when adding a category — e.g. "mechanics", "Mechanic", "MECHANIC" all
@@ -356,54 +379,137 @@ void _navigateToCategory(BuildContext context, String category) {
     // Matches exact, plural (+s), or singular (-s) forms.
     return normalized == key ||
         normalized == '${key}s' ||
-        (key.endsWith('s') && normalized == key.substring(0, key.length - 1));
+        (key.endsWith('s') &&
+            normalized == key.substring(0, key.length - 1));
   }
 
   if (matches('okada') || matches('okada rider')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const OkadaRidersScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const OkadaRidersScreen(),
+      ),
+    );
   } else if (matches('mechanic')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const MechanicsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const MechanicsScreen(),
+      ),
+    );
   } else if (matches('electrician')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const ElectriciansScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ElectriciansScreen(),
+      ),
+    );
   } else if (matches('steel bender')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const SteelBendersScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SteelBendersScreen(),
+      ),
+    );
   } else if (matches('tailor')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const TailorsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TailorsScreen(),
+      ),
+    );
   } else if (matches('plumber')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const PlumbersScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const PlumbersScreen(),
+      ),
+    );
   } else if (matches('carpenter')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const CarpentersScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CarpentersScreen(),
+      ),
+    );
   } else if (matches('mason')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const MasonsScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const MasonsScreen(),
+      ),
+    );
   } else if (matches('teacher')) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const TeachersScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeachersScreen(),
+      ),
+    );
   } else if (matches('home food delivery') ||
       matches('home food') ||
       matches('home cook') ||
       matches('food delivery')) {
-    // 'home food delivery' as a single key only tolerates a +s/-s on the
-    // WHOLE string (see matches() above), so it never matched real-world
-    // category names like "Home Cooks" or "Home Food" that admins actually
-    // typed into Firestore -- those fell through to the generic
-    // DirectoryListScreen, which is empty since home cooks live in the
-    // separate `home_cooks` collection, not generic listings. Matching all
-    // the variants people are likely to type fixes that.
-    Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const HomeCooksScreen()));
-  } else if (matches('welder')) {
-    Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const WeldersScreen()));
-  } else if (matches('tiler')) {
-    Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const TilersScreen()));
-  } else if (matches('hotel') || matches('guest house') || matches('guesthouse')) {
-    Navigator.push(
-        context, MaterialPageRoute(builder: (_) => const HotelsScreen()));
-  }
-  else {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => DirectoryListScreen(category: category)),
+      MaterialPageRoute(
+        builder: (_) => const HomeCooksScreen(),
+      ),
+    );
+  } else if (matches('welder')) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const WeldersScreen(),
+      ),
+    );
+  } else if (matches('tiler')) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TilersScreen(),
+      ),
+    );
+  } else if (matches('hotel') ||
+      matches('guest house') ||
+      matches('guesthouse')) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const HotelsScreen(),
+      ),
+    );
+  } else if (matches('aboboyaa') ||
+      matches('aboboyaa operator') ||
+      matches('aboboyaa operators') ||
+      normalized == 'aboboyaa services' ||
+      normalized == 'aboboyaa service') {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AboboyaaScreen(),
+      ),
+    );
+  } else if (matches('ride along') ||
+      normalized == 'ride alongs' ||
+      normalized == 'rideshare' ||
+      normalized == 'ride share' ||
+      normalized == 'carpool' ||
+      normalized == 'car pool') {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RideAlongScreen(),
+      ),
+    );
+  } else {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DirectoryListScreen(
+          category: category,
+        ),
+      ),
     );
   }
 }

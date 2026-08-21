@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/plumber.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class PlumberDetailScreen extends StatelessWidget {
   final Plumber plumber;
@@ -159,6 +160,9 @@ class PlumberDetailScreen extends StatelessWidget {
                           .toList(),
                     ),
             ),
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'plumbers', providerId: plumber.id, initialRating: plumber.rating, initialReviewCount: plumber.reviewCount),
 
             const SizedBox(height: 32),
             Row(

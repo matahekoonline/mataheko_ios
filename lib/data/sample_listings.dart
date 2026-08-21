@@ -117,6 +117,8 @@ final List<Listing> sampleListings = [
 // logic for it (subjects, class levels, qualification) but it was missing
 // from this list, so it was never actually selectable. 'Tiler' is new.
 final List<String> categories = [
+  'Aboboyaa',
+  'Ride Along',
   'Electrician',
   'Plumber',
   'Food',

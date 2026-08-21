@@ -1,11 +1,20 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../utils/photo_picker_helper.dart';
 import '../../models/home_cook.dart';
 import '../../services/auth_service.dart';
+import '../../services/photo_upload_service.dart';
 
 /// Admin-only form for manually adding a Home Cook, including their menu.
 /// Mirrors AddTilerScreen's structure/behavior. Writes go through
 /// AuthService.addHomeCookByAdmin, same pattern as the other admin add
 /// screens, rather than hitting Firestore directly.
+///
+/// Photos: kitchen/dish photos are picked from the gallery or camera and
+/// uploaded as files (same multi-photo picker as AddHotelScreen). Ghana
+/// Card verification photo now uses the same gallery/camera picker
+/// pattern (single image) instead of a pasted URL.
 class AddHomeCookScreen extends StatefulWidget {
   const AddHomeCookScreen({super.key});
 
@@ -21,8 +30,6 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
   final _businessNameController = TextEditingController();
   final _stationAreaController = TextEditingController();
   final _ghanaCardController = TextEditingController();
-  final _photoUrlController = TextEditingController();
-  final _ghanaCardPhotoUrlController = TextEditingController();
 
   final _cuisineInputController = TextEditingController();
   final _deliveryAreaInputController = TextEditingController();
@@ -31,8 +38,13 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
   final List<String> _deliveryAreas = [];
   final List<MenuItem> _menu = [];
 
+  final List<File> _photos = [];
+  File? _ghanaCardPhoto;
+  final _picker = ImagePicker();
+
   bool _offersDelivery = false;
   bool _isSaving = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -41,8 +53,6 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
     _businessNameController.dispose();
     _stationAreaController.dispose();
     _ghanaCardController.dispose();
-    _photoUrlController.dispose();
-    _ghanaCardPhotoUrlController.dispose();
     _cuisineInputController.dispose();
     _deliveryAreaInputController.dispose();
     super.dispose();
@@ -57,6 +67,32 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
     });
   }
 
+  Future<void> _addPhotosFromGallery() async {
+    final picked = await _picker.pickMultiImage(imageQuality: 80);
+    if (picked.isNotEmpty) {
+      setState(() => _photos.addAll(picked.map((x) => File(x.path))));
+    }
+  }
+
+  Future<void> _addPhotoFromCamera() async {
+    final picked = await pickImageFromCameraOrGallery(context, imageQuality: 80);
+    if (picked != null) setState(() => _photos.add(File(picked.path)));
+  }
+
+  void _removePhoto(int index) => setState(() => _photos.removeAt(index));
+
+  Future<void> _pickGhanaCardFromGallery() async {
+    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked != null) setState(() => _ghanaCardPhoto = File(picked.path));
+  }
+
+  Future<void> _pickGhanaCardFromCamera() async {
+    final picked = await pickImageFromCameraOrGallery(context, imageQuality: 80);
+    if (picked != null) setState(() => _ghanaCardPhoto = File(picked.path));
+  }
+
+  void _removeGhanaCardPhoto() => setState(() => _ghanaCardPhoto = null);
+
   Future<void> _addMenuItem() async {
     final result = await showDialog<MenuItem>(
       context: context,
@@ -68,14 +104,31 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+      _error = null;
+    });
 
     try {
       final name = _nameController.text.trim();
+      final phone = _phoneController.text.trim();
+
+      // Kitchen/dish photos: addHomeCookByAdmin uploads these itself
+      // (via _uploadHomeCookPhotos -> uploadListingPhoto internally), so
+      // just pass the raw Files through -- don't upload them here too.
+
+      // Upload the Ghana Card photo, if one was picked.
+      String? ghanaCardPhotoUrl;
+      if (_ghanaCardPhoto != null) {
+        ghanaCardPhotoUrl = await PhotoUploadService.uploadGhanaCardPhoto(
+          uid: phone,
+          photo: _ghanaCardPhoto!,
+        );
+      }
 
       await AuthService.instance.addHomeCookByAdmin(
         fullName: name,
-        phoneNumber: _phoneController.text.trim(),
+        phoneNumber: phone,
         businessName: _businessNameController.text.trim(),
         stationArea: _stationAreaController.text.trim(),
         cuisineTypes: _cuisineTypes,
@@ -85,12 +138,8 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
         ghanaCardNumber: _ghanaCardController.text.trim().isEmpty
             ? null
             : _ghanaCardController.text.trim(),
-        photoUrl: _photoUrlController.text.trim().isEmpty
-            ? null
-            : _photoUrlController.text.trim(),
-        ghanaCardPhotoUrl: _ghanaCardPhotoUrlController.text.trim().isEmpty
-            ? null
-            : _ghanaCardPhotoUrlController.text.trim(),
+        ghanaCardPhotoUrl: ghanaCardPhotoUrl,
+        photos: _photos,
       );
 
       if (mounted) {
@@ -101,9 +150,7 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not add home cook. Try again.')),
-        );
+        setState(() => _error = 'Could not add home cook. Try again.');
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -119,6 +166,103 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_error != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // ---------------------------------------------------------
+            // Photos -- kitchen / dish photos.
+            // ---------------------------------------------------------
+            Text('Photos', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Add a few photos — the cook, the kitchen, or dishes.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 10),
+            if (_photos.isNotEmpty)
+              SizedBox(
+                height: 100,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _photos.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    return Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.file(
+                            _photos[index],
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: 2,
+                          right: 2,
+                          child: GestureDetector(
+                            onTap: () => _removePhoto(index),
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close, size: 14, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        if (index == 0)
+                          Positioned(
+                            bottom: 2,
+                            left: 2,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('Cover', style: TextStyle(fontSize: 9, color: Colors.white)),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            if (_photos.isNotEmpty) const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _addPhotosFromGallery,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Add from gallery'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _addPhotoFromCamera,
+                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                    label: const Text('Take photo'),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Full Name'),
@@ -176,9 +320,9 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
                 runSpacing: 4,
                 children: _deliveryAreas
                     .map((v) => Chip(
-                          label: Text(v),
-                          onDeleted: () => setState(() => _deliveryAreas.remove(v)),
-                        ))
+                  label: Text(v),
+                  onDeleted: () => setState(() => _deliveryAreas.remove(v)),
+                ))
                     .toList(),
               ),
             ],
@@ -206,9 +350,9 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
               runSpacing: 4,
               children: _cuisineTypes
                   .map((v) => Chip(
-                        label: Text(v),
-                        onDeleted: () => setState(() => _cuisineTypes.remove(v)),
-                      ))
+                label: Text(v),
+                onDeleted: () => setState(() => _cuisineTypes.remove(v)),
+              ))
                   .toList(),
             ),
 
@@ -264,14 +408,62 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
               decoration: const InputDecoration(labelText: 'Ghana Card Number'),
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _photoUrlController,
-              decoration: const InputDecoration(labelText: 'Photo URL'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _ghanaCardPhotoUrlController,
-              decoration: const InputDecoration(labelText: 'Ghana Card Photo URL'),
+
+            // ---------------------------------------------------------
+            // Ghana Card verification photo -- now the same
+            // gallery/camera picker pattern as the kitchen photos above,
+            // instead of a pasted URL. Single photo only.
+            // ---------------------------------------------------------
+            Text('Ghana Card Photo', style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+            if (_ghanaCardPhoto != null)
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.file(
+                      _ghanaCardPhoto!,
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: GestureDetector(
+                      onTap: _removeGhanaCardPhoto,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, size: 14, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            if (_ghanaCardPhoto != null) const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickGhanaCardFromGallery,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: Text(_ghanaCardPhoto == null ? 'Add from gallery' : 'Replace'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickGhanaCardFromCamera,
+                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                    label: const Text('Take photo'),
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 28),
@@ -284,10 +476,10 @@ class _AddHomeCookScreenState extends State<AddHomeCookScreen> {
               ),
               child: _isSaving
                   ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
                   : const Text('Save Home Cook'),
             ),
           ],

@@ -90,6 +90,14 @@
           }
         },
         {
+          "client_id": "621284698388-mvkgprlqduv8doie4pbivkj60o70lslv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mataheko.community",
+            "certificate_hash": "a9229bea2bb996ae70ea23701ccf326393c94605"
+          }
+        },
+        {
           "client_id": "621284698388-t53ptqndqirdo1rvsii7ajclcoducva0.apps.googleusercontent.com",
           "client_type": 3
         }

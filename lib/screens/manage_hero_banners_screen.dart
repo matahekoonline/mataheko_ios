@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/hero_banner.dart';
+import '../models/hero_banner_settings.dart';
 import '../services/hero_banner_service.dart';
 import '../data/sample_banners.dart';
 import 'add_edit_hero_banner_screen.dart';
@@ -19,11 +20,14 @@ class _ManageHeroBannersScreenState extends State<ManageHeroBannersScreen> {
   List<HeroBanner> _banners = [];
   bool _loading = true;
   bool _seeding = false;
+  HeroBannerSettings _settings = const HeroBannerSettings();
+  bool _savingSettings = false;
   StreamSubscription<List<HeroBanner>>? _sub;
 
   @override
   void initState() {
     super.initState();
+    _loadHeroSettings();
     // Kept as a local list (rather than built straight off a StreamBuilder)
     // so drag-to-reorder can update the UI instantly while the Firestore
     // batch write happens in the background.
@@ -39,6 +43,120 @@ class _ManageHeroBannersScreenState extends State<ManageHeroBannersScreen> {
   void dispose() {
     _sub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadHeroSettings() async {
+    try {
+      final settings = await HeroBannerService.instance.getSettings();
+      if (mounted) setState(() => _settings = settings);
+    } catch (e) {
+      debugPrint('Hero settings load error: $e');
+    }
+  }
+
+  Future<void> _saveHeroSettings(HeroBannerSettings settings) async {
+    setState(() {
+      _settings = settings;
+      _savingSettings = true;
+    });
+    try {
+      await HeroBannerService.instance.updateSettings(settings);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hero display settings updated.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update hero settings: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
+    }
+  }
+
+  Widget _buildHeroSettingsCard() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.tune_rounded),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Hero display settings',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ),
+                if (_savingSettings)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Control how long each banner stays visible and how quickly it changes.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Time between slides: ${_settings.slideIntervalSeconds} seconds',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            Slider(
+              min: 3,
+              max: 30,
+              divisions: 27,
+              value: _settings.slideIntervalSeconds.toDouble(),
+              label: '${_settings.slideIntervalSeconds}s',
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => setState(() {
+                        _settings = _settings.copyWith(
+                          slideIntervalSeconds: v.round(),
+                        );
+                      }),
+              onChangeEnd: (v) => _saveHeroSettings(
+                _settings.copyWith(slideIntervalSeconds: v.round()),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Transition animation: ${_settings.transitionDurationMilliseconds} ms',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            Slider(
+              min: 200,
+              max: 1500,
+              divisions: 26,
+              value: _settings.transitionDurationMilliseconds.toDouble(),
+              label: '${_settings.transitionDurationMilliseconds}ms',
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => setState(() {
+                        _settings = _settings.copyWith(
+                          transitionDurationMilliseconds: v.round(),
+                        );
+                      }),
+              onChangeEnd: (v) => _saveHeroSettings(
+                _settings.copyWith(
+                  transitionDurationMilliseconds: v.round(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _seedSamples() async {
@@ -100,7 +218,11 @@ class _ManageHeroBannersScreenState extends State<ManageHeroBannersScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _banners.isEmpty
+          : Column(
+              children: [
+                _buildHeroSettingsCard(),
+                Expanded(
+                  child: _banners.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -147,6 +269,9 @@ class _ManageHeroBannersScreenState extends State<ManageHeroBannersScreen> {
                     );
                   },
                 ),
+                ),
+              ],
+            ),
     );
   }
 }

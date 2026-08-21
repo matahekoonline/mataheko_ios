@@ -1,11 +1,33 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/mechanic.dart';
+import '../models/review.dart';
+import '../services/auth_service.dart';
 import '../widgets/rating_display.dart';
 
-class MechanicDetailScreen extends StatelessWidget {
+class MechanicDetailScreen extends StatefulWidget {
   final Mechanic mechanic;
   const MechanicDetailScreen({super.key, required this.mechanic});
+
+  @override
+  State<MechanicDetailScreen> createState() => _MechanicDetailScreenState();
+}
+
+class _MechanicDetailScreenState extends State<MechanicDetailScreen> {
+  // Local copy so the header's rating/review count can bump instantly the
+  // moment a review is submitted, without waiting on a full doc re-fetch
+  // (the mechanics list screen still gets the authoritative value from
+  // its own StreamBuilder next time it rebuilds).
+  late double _rating;
+  late int _reviewCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _rating = widget.mechanic.rating;
+    _reviewCount = widget.mechanic.reviewCount;
+  }
 
   Future<void> _callNumber(String phone) async {
     final uri = Uri(scheme: 'tel', path: phone);
@@ -19,8 +41,137 @@ class MechanicDetailScreen extends StatelessWidget {
     if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _openReviewSheet() async {
+    final nameController = TextEditingController();
+    final commentController = TextEditingController();
+    double selectedRating = 5;
+    bool submitting = false;
+    String? error;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Leave a Review', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (i) {
+                        final starValue = i + 1;
+                        return IconButton(
+                          onPressed: () => setSheetState(() => selectedRating = starValue.toDouble()),
+                          icon: Icon(
+                            starValue <= selectedRating ? Icons.star : Icons.star_border,
+                            color: Colors.amber[700],
+                            size: 30,
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Your Name (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Comment (optional)',
+                      hintText: 'How was the work?',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                        setSheetState(() {
+                          submitting = true;
+                          error = null;
+                        });
+                        try {
+                          await AuthService.instance.submitMechanicReview(
+                            mechanicId: widget.mechanic.id,
+                            reviewerName: nameController.text.trim(),
+                            rating: selectedRating,
+                            comment: commentController.text.trim(),
+                          );
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
+                          if (mounted) {
+                            // Optimistically bump the header rating so
+                            // it doesn't look stale until the next
+                            // full doc read.
+                            setState(() {
+                              final newCount = _reviewCount + 1;
+                              _rating = ((_rating * _reviewCount) + selectedRating) / newCount;
+                              _reviewCount = newCount;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Thanks for your review!')),
+                            );
+                          }
+                        } catch (e) {
+                          setSheetState(() {
+                            submitting = false;
+                            error = 'Could not submit review: $e';
+                          });
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: submitting
+                          ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                          : const Text('Submit Review'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final mechanic = widget.mechanic;
     return Scaffold(
       appBar: AppBar(title: Text(mechanic.workshopName.isNotEmpty ? mechanic.workshopName : mechanic.name)),
       body: SingleChildScrollView(
@@ -52,7 +203,7 @@ class MechanicDetailScreen extends StatelessWidget {
                       ),
                       Text(mechanic.name, style: TextStyle(color: Colors.grey[700], fontSize: 13)),
                       const SizedBox(height: 6),
-                      RatingDisplay(rating: mechanic.rating, reviewCount: mechanic.reviewCount),
+                      RatingDisplay(rating: _rating, reviewCount: _reviewCount),
                     ],
                   ),
                 ),
@@ -108,16 +259,16 @@ class MechanicDetailScreen extends StatelessWidget {
               child: mechanic.vehicleTypes.isEmpty
                   ? const Text('Not specified', style: TextStyle(color: Colors.grey))
                   : Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: mechanic.vehicleTypes
-                          .map((v) => Chip(
-                                label: Text(v, style: const TextStyle(fontSize: 12)),
-                                backgroundColor: Colors.green[50],
-                                side: BorderSide(color: Colors.green[200]!),
-                              ))
-                          .toList(),
-                    ),
+                spacing: 8,
+                runSpacing: 8,
+                children: mechanic.vehicleTypes
+                    .map((v) => Chip(
+                  label: Text(v, style: const TextStyle(fontSize: 12)),
+                  backgroundColor: Colors.green[50],
+                  side: BorderSide(color: Colors.green[200]!),
+                ))
+                    .toList(),
+              ),
             ),
 
             if (mechanic.brandSpecialties.isNotEmpty) ...[
@@ -129,11 +280,11 @@ class MechanicDetailScreen extends StatelessWidget {
                   runSpacing: 8,
                   children: mechanic.brandSpecialties
                       .map((b) => Chip(
-                            label: Text(b, style: const TextStyle(fontSize: 12)),
-                            backgroundColor: Colors.blue[50],
-                            side: BorderSide(color: Colors.blue[200]!),
-                            avatar: const Icon(Icons.directions_car, size: 14),
-                          ))
+                    label: Text(b, style: const TextStyle(fontSize: 12)),
+                    backgroundColor: Colors.blue[50],
+                    side: BorderSide(color: Colors.blue[200]!),
+                    avatar: const Icon(Icons.directions_car, size: 14),
+                  ))
                       .toList(),
                 ),
               ),
@@ -145,19 +296,19 @@ class MechanicDetailScreen extends StatelessWidget {
               child: mechanic.servicesOffered.isEmpty
                   ? const Text('Not specified', style: TextStyle(color: Colors.grey))
                   : Column(
-                      children: mechanic.servicesOffered
-                          .map((s) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 3),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.check_circle, size: 16, color: Colors.green[700]),
-                                    const SizedBox(width: 8),
-                                    Text(s, style: const TextStyle(fontSize: 13)),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                    ),
+                children: mechanic.servicesOffered
+                    .map((s) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle, size: 16, color: Colors.green[700]),
+                      const SizedBox(width: 8),
+                      Text(s, style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ))
+                    .toList(),
+              ),
             ),
 
             const SizedBox(height: 32),
@@ -186,9 +337,103 @@ class MechanicDetailScreen extends StatelessWidget {
                 ),
               ],
             ),
+
+            const SizedBox(height: 28),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Reviews', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                TextButton.icon(
+                  onPressed: _openReviewSheet,
+                  icon: const Icon(Icons.rate_review_outlined, size: 18),
+                  label: const Text('Leave a Review'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: AuthService.instance.mechanicReviewsStream(mechanic.id),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Could not load reviews: ${snapshot.error}',
+                      style: TextStyle(color: Colors.red[400], fontSize: 12),
+                    ),
+                  );
+                }
+
+                final docs = snapshot.data?.docs ?? [];
+                if (docs.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No reviews yet. Be the first to leave one!',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    ),
+                  );
+                }
+
+                final reviews = docs.map((d) => Review.fromMap(d.id, d.data())).toList();
+
+                return Column(
+                  children: reviews.map((r) => _ReviewTile(review: r)).toList(),
+                );
+              },
+            ),
             const SizedBox(height: 16),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReviewTile extends StatelessWidget {
+  final Review review;
+  const _ReviewTile({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(review.reviewerName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              Row(
+                children: List.generate(5, (i) {
+                  return Icon(
+                    i < review.rating.round() ? Icons.star : Icons.star_border,
+                    size: 14,
+                    color: Colors.amber[700],
+                  );
+                }),
+              ),
+            ],
+          ),
+          if (review.comment.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(review.comment, style: const TextStyle(fontSize: 13)),
+          ],
+        ],
       ),
     );
   }

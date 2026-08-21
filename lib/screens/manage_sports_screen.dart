@@ -4,6 +4,7 @@ import '../services/sports_service.dart';
 import 'add_edit_team_screen.dart';
 import 'add_edit_player_screen.dart';
 import 'add_edit_fixture_screen.dart';
+import 'manage_league_sponsors_screen.dart';
 
 class ManageSportsScreen extends StatefulWidget {
   const ManageSportsScreen({super.key});
@@ -18,7 +19,7 @@ class _ManageSportsScreenState extends State<ManageSportsScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Manage Sports'),
@@ -40,11 +41,13 @@ class _ManageSportsScreenState extends State<ManageSportsScreen> {
                   ),
                 ),
                 const TabBar(
+                  isScrollable: true,
                   tabs: [
                     Tab(text: 'League'),
                     Tab(text: 'Teams'),
                     Tab(text: 'Players'),
                     Tab(text: 'Fixtures'),
+                    Tab(text: 'Sponsors'),
                   ],
                 ),
               ],
@@ -57,6 +60,7 @@ class _ManageSportsScreenState extends State<ManageSportsScreen> {
             _TeamsTab(sportType: _sportType),
             _PlayersTab(sportType: _sportType),
             _FixturesTab(sportType: _sportType),
+            ManageLeagueSponsorsScreen(sportType: _sportType),
           ],
         ),
       ),

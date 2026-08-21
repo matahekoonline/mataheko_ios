@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/mason.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class MasonDetailScreen extends StatelessWidget {
   final Mason mason;
@@ -159,6 +160,9 @@ class MasonDetailScreen extends StatelessWidget {
                           .toList(),
                     ),
             ),
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'masons', providerId: mason.id, initialRating: mason.rating, initialReviewCount: mason.reviewCount),
 
             const SizedBox(height: 32),
             Row(

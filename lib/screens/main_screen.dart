@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'marketplace_screen.dart';
@@ -5,6 +7,7 @@ import 'alerts_screen.dart';
 import 'media_screen.dart';
 import 'sports_screen.dart';
 import 'rider_mode_screen.dart';
+import 'account_screen.dart';
 import '../services/auth_service.dart';
 
 class MainScreen extends StatefulWidget {
@@ -17,6 +20,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   bool _isRider = false;
+  StreamSubscription? _authSubscription;
 
   final List<Widget> _baseScreens = const [
     HomeScreen(),
@@ -30,21 +34,47 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _loadRiderStatus();
+
+    // Keep the guest shell alive after logout. Never replace the whole app
+    // with a login screen; only account-required actions should request login.
+    _authSubscription = AuthService.instance.authStateChanges.listen((_) {
+      _loadRiderStatus(resetToHome: true);
+    });
   }
 
-  Future<void> _loadRiderStatus() async {
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadRiderStatus({bool resetToHome = false}) async {
     final isRider = await AuthService.instance.isOkadaRider();
-    if (mounted) setState(() => _isRider = isRider);
+    if (mounted) {
+      setState(() {
+        _isRider = isRider;
+        if (resetToHome) _currentIndex = 0;
+        if (_currentIndex >= (_isRider ? _baseScreens.length + 2 : _baseScreens.length + 1)) {
+          _currentIndex = 0;
+        }
+      });
+    }
   }
 
-  List<Widget> get _screens =>
-      _isRider ? [..._baseScreens, const RiderModeScreen()] : _baseScreens;
+  List<Widget> get _screens => [
+    ..._baseScreens,
+    if (_isRider) const RiderModeScreen(),
+    const AccountScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final maxIndex = _screens.length - 1;
+    final safeIndex = _currentIndex.clamp(0, maxIndex);
+
     return Scaffold(
       body: IndexedStack(
-        index: _currentIndex,
+        index: safeIndex,
         children: _screens,
       ),
       // ⚠️ REDLINE: if _isRider ever flips false→true→false again while
@@ -76,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
       )
           : null,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
+        selectedIndex: safeIndex,
         onDestinationSelected: (index) {
           setState(() => _currentIndex = index);
         },
@@ -112,6 +142,11 @@ class _MainScreenState extends State<MainScreen> {
               selectedIcon: Icon(Icons.motorcycle),
               label: 'Rider',
             ),
+          const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Account',
+          ),
         ],
       ),
     );

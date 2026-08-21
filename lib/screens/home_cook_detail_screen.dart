@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/home_cook.dart';
 import '../widgets/rating_display.dart';
 import 'marketplace_screen.dart' show formatCediPrice;
+import '../widgets/provider_reviews_section.dart';
 
 class HomeCookDetailScreen extends StatelessWidget {
   final HomeCook cook;
@@ -193,6 +194,9 @@ class HomeCookDetailScreen extends StatelessWidget {
                       }).toList(),
                     ),
             ),
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'home_cooks', providerId: cook.id, initialRating: cook.rating, initialReviewCount: cook.reviewCount),
 
             const SizedBox(height: 32),
             Padding(

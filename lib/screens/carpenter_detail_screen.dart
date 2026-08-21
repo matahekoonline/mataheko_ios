@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/carpenter.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class CarpenterDetailScreen extends StatelessWidget {
   final Carpenter carpenter;
@@ -50,6 +51,8 @@ class CarpenterDetailScreen extends StatelessWidget {
             _TagSection('Materials Worked With', carpenter.materialsWorkedWith),
           if (carpenter.servicesOffered.isNotEmpty)
             _TagSection('Services Offered', carpenter.servicesOffered),
+          const SizedBox(height: 18),
+          ProviderReviewsSection(collection: 'carpenters', providerId: carpenter.id, initialRating: carpenter.rating, initialReviewCount: carpenter.reviewCount),
         ],
       ),
     );

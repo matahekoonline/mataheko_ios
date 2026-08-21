@@ -6,6 +6,7 @@ import '../models/hero_banner.dart';
 class HeroSection extends StatefulWidget {
   final List<HeroBanner> banners;
   final Duration autoPlayInterval;
+  final Duration transitionDuration;
 
   /// Fixed aspect ratio every banner is displayed at, so admin-uploaded
   /// photos of different raw sizes all end up looking consistent
@@ -21,7 +22,8 @@ class HeroSection extends StatefulWidget {
   const HeroSection({
     super.key,
     required this.banners,
-    this.autoPlayInterval = const Duration(seconds: 4),
+    this.autoPlayInterval = const Duration(seconds: 8),
+    this.transitionDuration = const Duration(milliseconds: 550),
     this.aspectRatio = 16 / 9,
     this.onBannerTap,
   });
@@ -98,8 +100,9 @@ class _HeroSectionState extends State<HeroSection>
     super.didUpdateWidget(oldWidget);
     // Banner list can now change live (Firestore stream from admin edits).
     // Keep the index in range and restart autoplay against the new list.
-    if (widget.banners.length != oldWidget.banners.length) {
-      _index = 0;
+    if (widget.banners.length != oldWidget.banners.length ||
+        widget.autoPlayInterval != oldWidget.autoPlayInterval) {
+      _index = widget.banners.isEmpty ? 0 : _index % widget.banners.length;
       _startAutoPlay();
     }
   }
@@ -159,7 +162,7 @@ class _HeroSectionState extends State<HeroSection>
             child: AspectRatio(
               aspectRatio: widget.aspectRatio,
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 550),
+                duration: widget.transitionDuration,
                 transitionBuilder: (child, animation) =>
                     _currentTransition(child, animation, true),
                 child: _BannerContent(key: ValueKey(banner.id), banner: banner),

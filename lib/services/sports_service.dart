@@ -169,6 +169,79 @@ class SportsService {
   }
 
   // ---------------------------------------------------------------------
+  // League sponsors
+  // ---------------------------------------------------------------------
+
+  Stream<List<LeagueSponsor>> sponsorsStream(String sportType) {
+    return _db
+        .collection('sports_sponsors')
+        .where('sportType', isEqualTo: sportType)
+        .snapshots()
+        .map((snap) {
+      final sponsors = snap.docs
+          .map((d) => LeagueSponsor.fromMap(d.id, d.data()))
+          .where((sponsor) => sponsor.active)
+          .toList();
+      sponsors.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      return sponsors;
+    });
+  }
+
+  Stream<List<LeagueSponsor>> allSponsorsStream(String sportType) {
+    return _db
+        .collection('sports_sponsors')
+        .where('sportType', isEqualTo: sportType)
+        .snapshots()
+        .map((snap) {
+      final sponsors = snap.docs
+          .map((d) => LeagueSponsor.fromMap(d.id, d.data()))
+          .toList();
+      sponsors.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      return sponsors;
+    });
+  }
+
+  String newSponsorId() => _db.collection('sports_sponsors').doc().id;
+
+  Future<void> createSponsorWithId({
+    required String id,
+    required String sportType,
+    required String name,
+    required String logoUrl,
+    required int sortOrder,
+  }) async {
+    await _db.collection('sports_sponsors').doc(id).set({
+      'sportType': sportType,
+      'name': name,
+      'logoUrl': logoUrl,
+      'sortOrder': sortOrder,
+      'active': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateSponsor(
+    String id, {
+    String? name,
+    String? logoUrl,
+    int? sortOrder,
+    bool? active,
+  }) async {
+    await _db.collection('sports_sponsors').doc(id).update({
+      if (name != null) 'name': name,
+      if (logoUrl != null) 'logoUrl': logoUrl,
+      if (sortOrder != null) 'sortOrder': sortOrder,
+      if (active != null) 'active': active,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deleteSponsor(String id) async {
+    await _db.collection('sports_sponsors').doc(id).delete();
+  }
+
+  // ---------------------------------------------------------------------
   // Fixtures
   // ---------------------------------------------------------------------
 
@@ -271,20 +344,57 @@ class SportsService {
     return result;
   }
 
-  List<TopScorer> computeTopScorers(List<SportsFixture> fixtures, {int limit = 10}) {
+  List<TopScorer> computeTopScorers(
+    List<SportsFixture> fixtures, {
+    List<SportsPlayer> players = const [],
+    List<SportsTeam> teams = const [],
+    int limit = 10,
+  }) {
     final totals = <String, _ScorerAccumulator>{};
+    final playerById = {for (final p in players) p.id: p};
+    final teamById = {for (final t in teams) t.id: t};
+
     for (final f in fixtures) {
       if (!f.isCompleted) continue;
       for (final s in f.scorers) {
-        final acc =
-            totals.putIfAbsent(s.playerId, () => _ScorerAccumulator(s.playerName, s.teamName));
+        final player = playerById[s.playerId];
+        final team = teamById[s.teamId];
+        final acc = totals.putIfAbsent(
+          s.playerId,
+          () => _ScorerAccumulator(
+            playerId: s.playerId,
+            playerName: s.playerName,
+            teamId: s.teamId,
+            teamName: s.teamName,
+            playerPhotoUrl: player?.photoUrl,
+            teamLogoUrl: team?.logoUrl,
+          ),
+        );
         acc.goals += s.goals;
+        if (acc.playerPhotoUrl == null && player?.photoUrl != null) {
+          acc.playerPhotoUrl = player!.photoUrl;
+        }
+        if (acc.teamLogoUrl == null && team?.logoUrl != null) {
+          acc.teamLogoUrl = team!.logoUrl;
+        }
       }
     }
+
     final list = totals.values
-        .map((a) => TopScorer(playerName: a.playerName, teamName: a.teamName, goals: a.goals))
+        .map((a) => TopScorer(
+              playerId: a.playerId,
+              playerName: a.playerName,
+              teamId: a.teamId,
+              teamName: a.teamName,
+              playerPhotoUrl: a.playerPhotoUrl,
+              teamLogoUrl: a.teamLogoUrl,
+              goals: a.goals,
+            ))
         .toList()
-      ..sort((a, b) => b.goals.compareTo(a.goals));
+      ..sort((a, b) {
+        final goals = b.goals.compareTo(a.goals);
+        return goals != 0 ? goals : a.playerName.compareTo(b.playerName);
+      });
     return list.take(limit).toList();
   }
 }
@@ -302,8 +412,20 @@ class _StandingAccumulator {
 }
 
 class _ScorerAccumulator {
+  final String playerId;
   final String playerName;
+  final String teamId;
   final String teamName;
+  String? playerPhotoUrl;
+  String? teamLogoUrl;
   int goals = 0;
-  _ScorerAccumulator(this.playerName, this.teamName);
+
+  _ScorerAccumulator({
+    required this.playerId,
+    required this.playerName,
+    required this.teamId,
+    required this.teamName,
+    this.playerPhotoUrl,
+    this.teamLogoUrl,
+  });
 }

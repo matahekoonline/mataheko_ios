@@ -1,391 +1,193 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
 
-class VerifyProvidersScreen extends StatelessWidget {
+import '../models/admin_provider_record.dart';
+import '../services/auth_service.dart';
+import 'provider_edit_screen.dart';
+
+class VerifyProvidersScreen extends StatefulWidget {
   const VerifyProvidersScreen({super.key});
 
-  Future<void> _setStatus(String uid, String status, String? category) async {
-    await FirebaseFirestore.instance.collection('users').doc(uid).set(
-      {'verificationStatus': status},
-      SetOptions(merge: true),
+  @override
+  State<VerifyProvidersScreen> createState() => _VerifyProvidersScreenState();
+}
+
+class _VerifyProvidersScreenState extends State<VerifyProvidersScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  Future<void> _approveApplication(DocumentSnapshot<Map<String, dynamic>> application) async {
+    final data = application.data() ?? {};
+    final uid = (data['uid'] ?? application.id).toString();
+    final category = (data['category'] ?? data['providerCategory'] ?? '').toString();
+    final collection = (data['providerCollection'] ?? '').toString();
+    final providerDocId = (data['providerDocId'] ?? uid).toString();
+    final name = (data['displayName'] ?? data['fullName'] ?? 'Provider').toString();
+
+    if (collection.isEmpty || providerDocId.isEmpty) {
+      _toast('This application has not completed its provider profile yet. Ask the user to finish registration.', good: false);
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await AuthService.instance.setProviderApproved(collection, providerDocId, true);
+      await FirebaseFirestore.instance.collection('provider_applications').doc(application.id).set({
+        'status': 'approved',
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'role': 'provider',
+        'accountType': 'provider',
+        'providerCategory': category,
+        'providerCategoryName': category,
+        'providerStatus': 'approved',
+        'verificationStatus': 'verified',
+        'providerAvailable': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) _toast('$name is now verified.', good: true);
+    } catch (e) {
+      if (mounted) _toast('Verification failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openApplication(DocumentSnapshot<Map<String, dynamic>> application) async {
+    final data = application.data() ?? {};
+    final collection = (data['providerCollection'] ?? '').toString();
+    final providerDocId = (data['providerDocId'] ?? '').toString();
+    if (collection.isEmpty || providerDocId.isEmpty) {
+      _toast('Provider profile is not complete yet.');
+      return;
+    }
+
+    final snap = await FirebaseFirestore.instance.collection(collection).doc(providerDocId).get();
+    if (!snap.exists) {
+      _toast('Provider record could not be found.');
+      return;
+    }
+
+    final record = AdminProviderRecord(
+      id: snap.id,
+      category: (data['category'] ?? _categoryForCollection(collection) ?? 'Provider').toString(),
+      collection: collection,
+      data: snap.data() ?? {},
     );
 
-    // The users doc's verificationStatus only drives this admin screen's
-    // own query. Each provider category has its OWN doc (okada_riders/
-    // mechanics/steel_benders/electricians/tailors/plumbers) with its OWN
-    // isApproved/isPending flags, and those are what the public list
-    // screens actually filter on — so without this, tapping "Verify" here
-    // never makes anyone show up in OkadaRidersScreen / MechanicsScreen /
-    // SteelBendersScreen / ElectriciansScreen / TailorsScreen / PlumbersScreen.
-    if (status == 'verified') {
-      switch (category) {
-        case 'Okada':
-          await AuthService.instance.approveOkadaRider(uid);
-          break;
-        case 'Mechanic':
-          await AuthService.instance.approveMechanic(uid);
-          break;
-        case 'Steel Bender':
-          await AuthService.instance.approveSteelBender(uid);
-          break;
-        case 'Electrician':
-          await AuthService.instance.approveElectrician(uid);
-          break;
-        case 'Tailor':
-          await AuthService.instance.approveTailor(uid);
-          break;
-        case 'Plumber':
-          await AuthService.instance.approvePlumber(uid);
-          break;
-        case 'Teacher':
-          await AuthService.instance.approveTeacher(uid);
-          break;
-        case 'Tiler':
-          await AuthService.instance.approveTiler(uid);
-          break;
-      }
-    }
-  }
-
-  void _viewFullPhoto(BuildContext context, String url, String label) {
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppBar(
-              title: Text(label),
-              automaticallyImplyLeading: false,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(ctx),
-                ),
-              ],
-            ),
-            InteractiveViewer(
-              child: Image.network(
-                url,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('Could not load photo.'),
-                ),
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return const Padding(
-                    padding: EdgeInsets.all(40),
-                    child: CircularProgressIndicator(),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => ProviderEditScreen(record: record)),
     );
+    if (changed == true && mounted) setState(() {});
   }
 
-  /// Maps a provider category to the Firestore collection holding its
-  /// category-specific doc (and public-facing photo). Returns null for
-  /// categories that only have a plain users doc with no dedicated
-  /// collection.
-  String? _providerCollectionFor(String? category) {
-    switch (category) {
-      case 'Okada':
-        return 'okada_riders';
-      case 'Mechanic':
-        return 'mechanics';
-      case 'Steel Bender':
-        return 'steel_benders';
-      case 'Electrician':
-        return 'electricians';
-      case 'Tailor':
-        return 'tailors';
-      case 'Plumber':
-        return 'plumbers';
-      case 'Teacher':
-        return 'teachers';
-      case 'Tiler':
-        return 'tilers';
-      default:
-        return null;
-    }
-  }
-
-  String _providerPhotoLabelFor(String? category) {
-    switch (category) {
-      case 'Okada':
-        return 'Rider Photo';
-      case 'Mechanic':
-        return 'Mechanic Photo';
-      case 'Steel Bender':
-        return 'Steel Bender Photo';
-      case 'Electrician':
-        return 'Electrician Photo';
-      case 'Tailor':
-        return 'Tailor Photo';
-      case 'Plumber':
-        return 'Plumber Photo';
-      case 'Teacher':
-        return 'Teacher Photo';
-      case 'Tiler':
-        return 'Tiler Photo';
-      default:
-        return 'Provider Photo';
-    }
+  void _toast(String text, {bool good = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(backgroundColor: good ? const Color(0xFF166534) : null, content: Text(text)));
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Verify Providers'),
-          centerTitle: true,
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'New Signups'),
-              Tab(text: 'Category Approvals'),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: const Text('Provider Verification', style: TextStyle(fontWeight: FontWeight.w800)),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF18212F),
+        elevation: 0,
+        bottom: TabBar(
+          controller: _tabs,
+          labelColor: const Color(0xFF166534),
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: const Color(0xFF166534),
+          tabs: const [Tab(text: 'New applications'), Tab(text: 'Category review')],
         ),
-        body: TabBarView(
-          children: [
-            _buildPendingUsersList(context),
-            _CategoryApprovalsTab(
-              providerCollectionFor: _providerCollectionFor,
-              providerPhotoLabelFor: _providerPhotoLabelFor,
-            ),
-          ],
-        ),
+      ),
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          _ApplicationsTab(busy: _busy, onApprove: _approveApplication, onEdit: _openApplication),
+          _CategoryReviewTab(onToast: _toast),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildPendingUsersList(BuildContext context) {
+class _ApplicationsTab extends StatelessWidget {
+  final bool busy;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>>) onApprove;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>>) onEdit;
+
+  const _ApplicationsTab({required this.busy, required this.onApprove, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'provider')
-          .where('verificationStatus', isEqualTo: 'pending')
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('provider_applications').where('status', isEqualTo: 'pending').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          // Firestore often needs a composite index for two where() clauses.
-          // If this fires, check Logcat/console for a link Firestore gives
-          // you to auto-create the index, click it, wait a minute, retry.
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'Could not load providers. If this is the first time running this screen, '
-                    'Firestore may need a composite index — check your terminal/Logcat for a link to create it.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
-
+        if (snapshot.hasError) return Center(child: Text('Could not load applications: ${snapshot.error}'));
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
-          return const Center(child: Text('No pending providers to review.'));
+          return const Center(child: Padding(padding: EdgeInsets.all(30), child: Text('No provider applications are waiting for review.', textAlign: TextAlign.center)));
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.all(12),
+        return ListView.builder(
+          padding: const EdgeInsets.all(14),
           itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
+          itemBuilder: (_, index) {
             final doc = docs[index];
-            final data = doc.data();
-            final uid = doc.id;
-            final ghanaCardPhotoUrl = data['ghanaCardPhotoUrl'] as String?;
-            final category = data['category'] as String?;
-
+            final d = doc.data();
+            final name = (d['displayName'] ?? d['fullName'] ?? 'Provider').toString();
+            final category = (d['category'] ?? d['providerCategory'] ?? 'Provider').toString();
+            final collection = (d['providerCollection'] ?? '').toString();
+            final complete = collection.isNotEmpty && (d['providerDocId'] ?? '').toString().isNotEmpty;
             return Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: Colors.grey.shade200)),
               child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data['fullName'] as String? ?? '(no name)',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    const SizedBox(height: 4),
-                    Text('Phone: ${data['phoneNumber'] ?? '-'}'),
-                    Text('Area: ${data['area'] ?? '-'}'),
-                    if (category != null) Text('Category: $category'),
-                    Text('Ghana Card No: ${data['ghanaCardNumber'] ?? '-'}'),
-                    const SizedBox(height: 12),
-
-                    // Ghana Card photo — this is the whole point of the
-                    // review, so show it inline (not just the number) and
-                    // let the admin tap to inspect it full-screen before
-                    // approving.
-                    Text(
-                      'Ghana Card Photo',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 6),
-                    if (ghanaCardPhotoUrl == null || ghanaCardPhotoUrl.isEmpty)
-                      Container(
-                        height: 140,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          'No photo uploaded',
-                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                        ),
-                      )
-                    else
-                      GestureDetector(
-                        onTap: () => _viewFullPhoto(context, ghanaCardPhotoUrl, '${data['fullName'] ?? 'Provider'} — Ghana Card'),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.network(
-                            ghanaCardPhotoUrl,
-                            height: 140,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              height: 140,
-                              color: Colors.red[50],
-                              alignment: Alignment.center,
-                              child: Text(
-                                'Could not load photo',
-                                style: TextStyle(color: Colors.red[300], fontSize: 12),
-                              ),
-                            ),
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) return child;
-                              return Container(
-                                height: 140,
-                                alignment: Alignment.center,
-                                child: const CircularProgressIndicator(strokeWidth: 2),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 12),
-
-                    // Category-specific provider photo — lives in its own
-                    // {category}_doc/{uid} record (created by
-                    // registerAsOkadaRider / registerAsMechanic /
-                    // registerAsSteelBender / registerAsElectrician), not
-                    // on the users doc, so it needs its own fetch per
-                    // category.
-                    if (_providerCollectionFor(category) != null) ...[
-                      Text(
-                        _providerPhotoLabelFor(category),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700], fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 6),
-                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: FirebaseFirestore.instance
-                            .collection(_providerCollectionFor(category)!)
-                            .doc(uid)
-                            .get(),
-                        builder: (context, providerSnap) {
-                          if (providerSnap.connectionState == ConnectionState.waiting) {
-                            return Container(
-                              height: 140,
-                              alignment: Alignment.center,
-                              child: const CircularProgressIndicator(strokeWidth: 2),
-                            );
-                          }
-                          final providerData = providerSnap.data?.data();
-                          final photoField = category == 'Okada' ? 'riderPhotoUrl' : 'photoUrl';
-                          final providerPhotoUrl = providerData == null ? null : providerData[photoField] as String?;
-                          if (providerPhotoUrl == null || providerPhotoUrl.isEmpty) {
-                            return Container(
-                              height: 140,
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                'No photo uploaded',
-                                style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                              ),
-                            );
-                          }
-                          return GestureDetector(
-                            onTap: () => _viewFullPhoto(context, providerPhotoUrl,
-                                '${data['fullName'] ?? 'Provider'} — ${_providerPhotoLabelFor(category)}'),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: Image.network(
-                                providerPhotoUrl,
-                                height: 140,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Container(
-                                  height: 140,
-                                  color: Colors.red[50],
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'Could not load photo',
-                                    style: TextStyle(color: Colors.red[300], fontSize: 12),
-                                  ),
-                                ),
-                                loadingBuilder: (context, child, progress) {
-                                  if (progress == null) return child;
-                                  return Container(
-                                    height: 140,
-                                    alignment: Alignment.center,
-                                    child: const CircularProgressIndicator(strokeWidth: 2),
-                                  );
-                                },
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _setStatus(uid, 'rejected', category),
-                            icon: const Icon(Icons.close, size: 16, color: Colors.red),
-                            label: const Text('Reject', style: TextStyle(color: Colors.red)),
-                            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _setStatus(uid, 'verified', category),
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text('Verify'),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    CircleAvatar(backgroundColor: Colors.green.shade50, child: Icon(Icons.person_outline, color: Colors.green.shade700)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                      const SizedBox(height: 3),
+                      Text(category, style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w600)),
+                    ])),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6), decoration: BoxDecoration(color: complete ? Colors.orange.shade50 : Colors.red.shade50, borderRadius: BorderRadius.circular(20)), child: Text(complete ? 'Pending' : 'Incomplete', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: complete ? Colors.orange.shade800 : Colors.red.shade700))),
+                  ]),
+                  const SizedBox(height: 12),
+                  Text(complete ? 'Provider profile is ready for admin review.' : 'Category selected, but detailed provider registration is not complete.', style: TextStyle(color: Colors.grey.shade700)),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: OutlinedButton.icon(onPressed: () => onEdit(doc), icon: const Icon(Icons.edit_outlined), label: const Text('Review'))),
+                    const SizedBox(width: 10),
+                    Expanded(child: FilledButton.icon(onPressed: busy || !complete ? null : () => onApprove(doc), icon: const Icon(Icons.verified_rounded), label: const Text('Verify'))),
+                  ]),
+                ]),
               ),
             );
           },
@@ -395,187 +197,49 @@ class VerifyProvidersScreen extends StatelessWidget {
   }
 }
 
-/// Catches providers stuck between the two approval systems: their
-/// `users/{uid}.verificationStatus` may already say 'verified' (so they no
-/// longer show up in the "New Signups" tab), but their category doc
-/// (mechanics/steel_benders/okada_riders/electricians/tailors/plumbers) is
-/// still isPending/unapproved — which is what the public list screens
-/// actually check. Queries each category collection directly, independent
-/// of the users doc, so nothing can permanently fall through the gap again.
-class _CategoryApprovalsTab extends StatelessWidget {
-  final String? Function(String? category) providerCollectionFor;
-  final String Function(String? category) providerPhotoLabelFor;
+class _CategoryReviewTab extends StatelessWidget {
+  final void Function(String) onToast;
+  const _CategoryReviewTab({required this.onToast});
 
-  const _CategoryApprovalsTab({
-    required this.providerCollectionFor,
-    required this.providerPhotoLabelFor,
-  });
+  static const categories = <String, String>{
+    'Okada': 'okada_riders', 'Aboboyaa': 'aboboyaa_riders', 'Mechanic': 'mechanics', 'Motor Mechanic': 'motor_mechanics',
+    'Steel Bender': 'steel_benders', 'Carpenter': 'carpenters', 'Tailor': 'tailors', 'Plumber': 'plumbers', 'Electrician': 'electricians',
+    'Mason': 'masons', 'Tiler': 'tilers', 'Welder': 'welders', 'Teacher': 'teachers', 'Home Food': 'home_cooks', 'Hotel': 'hotels',
+    'Room for Rent': 'rooms_for_rent', 'Event Planner': 'event_planners', 'Ride Along': 'ride_along',
+  };
 
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        _CategorySection(
-          collection: 'mechanics',
-          categoryLabel: 'Mechanic',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveMechanic(uid),
+      padding: const EdgeInsets.all(14),
+      children: categories.entries.map((entry) => Card(
+        elevation: 0,
+        margin: const EdgeInsets.only(bottom: 8),
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: entry.value == 'okada_riders' || entry.value == 'aboboyaa_riders'
+              ? FirebaseFirestore.instance.collection(entry.value).where('verificationStatus', isEqualTo: 'pending').snapshots()
+              : FirebaseFirestore.instance.collection(entry.value).where('isPending', isEqualTo: true).snapshots(),
+          builder: (_, snap) {
+            final count = snap.data?.docs.length ?? 0;
+            return ListTile(
+              leading: CircleAvatar(backgroundColor: Colors.green.shade50, child: Icon(Icons.work_outline, color: Colors.green.shade700)),
+              title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text('$count pending provider${count == 1 ? '' : 's'}'),
+              trailing: count == 0 ? const Icon(Icons.check_circle_outline, color: Colors.green) : Badge(label: Text('$count')),
+            );
+          },
         ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'electricians',
-          categoryLabel: 'Electrician',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveElectrician(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'tailors',
-          categoryLabel: 'Tailor',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveTailor(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'plumbers',
-          categoryLabel: 'Plumber',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approvePlumber(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'teachers',
-          categoryLabel: 'Teacher',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveTeacher(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'tilers',
-          categoryLabel: 'Tiler',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveTiler(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'steel_benders',
-          categoryLabel: 'Steel Bender',
-          pendingField: 'isPending',
-          onApprove: (uid) => AuthService.instance.approveSteelBender(uid),
-        ),
-        const SizedBox(height: 8),
-        _CategorySection(
-          collection: 'okada_riders',
-          categoryLabel: 'Okada Rider',
-          // okada_riders uses a 'verificationStatus' string field instead
-          // of a boolean isPending — same shape as the users doc.
-          pendingField: 'verificationStatus',
-          pendingFieldValue: 'pending',
-          onApprove: (uid) => AuthService.instance.approveOkadaRider(uid),
-        ),
-      ],
+      )).toList(),
     );
   }
 }
 
-class _CategorySection extends StatelessWidget {
-  final String collection;
-  final String categoryLabel;
-  final String pendingField;
-  final Object pendingFieldValue; // true for isPending, 'pending' for verificationStatus
-  final Future<void> Function(String uid) onApprove;
-
-  const _CategorySection({
-    required this.collection,
-    required this.categoryLabel,
-    required this.pendingField,
-    this.pendingFieldValue = true,
-    required this.onApprove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final query = FirebaseFirestore.instance
-        .collection(collection)
-        .where(pendingField, isEqualTo: pendingFieldValue);
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: query.snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          );
-        }
-        if (snapshot.hasError) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              '$categoryLabel: could not load (${snapshot.error})',
-              style: TextStyle(color: Colors.red[400], fontSize: 12),
-            ),
-          );
-        }
-
-        final docs = snapshot.data?.docs ?? [];
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                '$categoryLabel ${docs.isEmpty ? '' : '(${docs.length})'}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-            ),
-            if (docs.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text('Nothing waiting here.', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-              )
-            else
-              ...docs.map((doc) {
-                final data = doc.data();
-                final uid = doc.id;
-                final name = (data['fullName'] as String?) ?? (data['riderName'] as String?) ?? (data['name'] as String?) ?? '(no name)';
-                final phone = data['phoneNumber'] as String? ?? '-';
-                final isApproved = data['isApproved'] == true;
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  child: ListTile(
-                    dense: true,
-                    title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    subtitle: Text(
-                      isApproved ? 'Approved, but still marked pending — tap to fix' : 'Phone: $phone',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    trailing: ElevatedButton(
-                      onPressed: () async {
-                        await onApprove(uid);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('$name approved')),
-                          );
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green[700],
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      child: const Text('Approve', style: TextStyle(fontSize: 12)),
-                    ),
-                  ),
-                );
-              }),
-          ],
-        );
-      },
-    );
-  }
+String? _categoryForCollection(String collection) {
+  const map = {
+    'okada_riders': 'Okada', 'aboboyaa_riders': 'Aboboyaa', 'mechanics': 'Mechanic', 'motor_mechanics': 'Motor Mechanic',
+    'steel_benders': 'Steel Bender', 'carpenters': 'Carpenter', 'tailors': 'Tailor', 'plumbers': 'Plumber', 'electricians': 'Electrician',
+    'masons': 'Mason', 'tilers': 'Tiler', 'welders': 'Welder', 'teachers': 'Teacher', 'home_cooks': 'Home Food', 'hotels': 'Hotel',
+    'rooms_for_rent': 'Room for Rent', 'event_planners': 'Event Planner', 'ride_along': 'Ride Along',
+  };
+  return map[collection];
 }

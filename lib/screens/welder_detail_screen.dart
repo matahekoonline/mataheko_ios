@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/welder.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class WelderDetailScreen extends StatelessWidget {
   final Welder welder;
@@ -159,6 +160,9 @@ class WelderDetailScreen extends StatelessWidget {
                     .toList(),
               ),
             ),
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'welders', providerId: welder.id, initialRating: welder.rating, initialReviewCount: welder.reviewCount),
 
             const SizedBox(height: 32),
             Row(

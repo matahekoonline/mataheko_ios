@@ -5,6 +5,7 @@ import '../models/okada_order.dart';
 import '../models/okada_rider.dart';
 import '../services/location_service.dart';
 import 'order_tracking_screen.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class RiderDetailScreen extends StatefulWidget {
   final OkadaRider rider;
@@ -136,6 +137,9 @@ class _RiderDetailScreenState extends State<RiderDetailScreen> {
               _InfoRow(icon: Icons.location_on_outlined, label: 'Station', value: rider.stationName),
               const SizedBox(height: 12),
               _InfoRow(icon: Icons.verified_user_outlined, label: 'Status', value: 'ID Verified'),
+              const SizedBox(height: 18),
+              ProviderReviewsSection(collection: 'okada_riders', providerId: rider.id),
+
               const SizedBox(height: 32),
               Row(
                 children: [

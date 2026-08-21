@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/teacher.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 class TeacherDetailScreen extends StatelessWidget {
   final Teacher teacher;
@@ -147,6 +148,9 @@ class TeacherDetailScreen extends StatelessWidget {
                 ),
               ),
             ],
+
+            const SizedBox(height: 18),
+            ProviderReviewsSection(collection: 'teachers', providerId: teacher.id, initialRating: teacher.rating, initialReviewCount: teacher.reviewCount),
 
             const SizedBox(height: 32),
             Row(

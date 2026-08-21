@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/marketplace_item.dart';
 import '../services/marketplace_service.dart';
+import '../services/activity_service.dart';
 import '../screens/marketplace_screen.dart' show formatCediPrice;
 
 class MarketplaceItemDetailScreen extends StatefulWidget {
@@ -20,6 +21,14 @@ class _MarketplaceItemDetailScreenState extends State<MarketplaceItemDetailScree
     super.initState();
     // Fire-and-forget — a failed view-count bump shouldn't block viewing the item.
     MarketplaceService.instance.incrementViewCount(widget.item.id);
+    ActivityService.instance.recordRecentlyViewed(
+      itemId: widget.item.id,
+      type: 'marketplace',
+      title: widget.item.title,
+      subtitle: widget.item.price,
+      imageUrl: widget.item.photoUrls.isNotEmpty ? widget.item.photoUrls.first : '',
+      metadata: {'locationText': widget.item.locationText},
+    );
   }
 
   Future<void> _call() async {
@@ -38,7 +47,35 @@ class _MarketplaceItemDetailScreenState extends State<MarketplaceItemDetailScree
     final item = widget.item;
 
     return Scaffold(
-      appBar: AppBar(title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+      appBar: AppBar(
+        title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          StreamBuilder<bool>(
+            stream: ActivityService.instance.isSavedStream(itemId: item.id, type: 'marketplace'),
+            builder: (context, snapshot) {
+              final saved = snapshot.data == true;
+              return IconButton(
+                tooltip: saved ? 'Remove from saved' : 'Save item',
+                icon: Icon(saved ? Icons.favorite : Icons.favorite_border),
+                onPressed: () async {
+                  if (saved) {
+                    await ActivityService.instance.removeSavedItem(itemId: item.id, type: 'marketplace');
+                  } else {
+                    await ActivityService.instance.saveItem(
+                      itemId: item.id,
+                      type: 'marketplace',
+                      title: item.title,
+                      subtitle: item.price,
+                      imageUrl: item.photoUrls.isNotEmpty ? item.photoUrls.first : '',
+                      metadata: {'locationText': item.locationText},
+                    );
+                  }
+                },
+              );
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

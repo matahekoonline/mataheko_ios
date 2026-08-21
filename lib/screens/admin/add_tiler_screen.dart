@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../utils/photo_picker_helper.dart';
 import '../../services/auth_service.dart';
 import '../../services/photo_upload_service.dart';
 
@@ -48,12 +49,12 @@ class _AddTilerScreenState extends State<AddTilerScreen> {
   String? _error;
 
   Future<void> _pickPhoto() async {
-    final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    final picked = await pickImageFromCameraOrGallery(context, imageQuality: 80);
     if (picked != null) setState(() => _photo = File(picked.path));
   }
 
   Future<void> _pickGhanaCardImage() async {
-    final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    final picked = await pickImageFromCameraOrGallery(context, imageQuality: 80);
     if (picked != null) setState(() => _ghanaCardImage = File(picked.path));
   }
 

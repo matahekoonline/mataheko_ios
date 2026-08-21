@@ -40,6 +40,14 @@ class MenuItem {
 /// across every category. The one addition over the other trades is
 /// `menu`, since this category shows dishes + prices rather than a plain
 /// services-offered list.
+///
+/// Photos: `photoUrls` mirrors Hotel's multi-photo pattern (list of
+/// uploaded file URLs, first entry doubles as the cover photo) rather
+/// than a single URL. `photoUrl` is kept as a read-only convenience
+/// getter over `photoUrls.first` so existing screens that display a
+/// single avatar/thumbnail (e.g. HomeCooksScreen's list tile) don't need
+/// to change. fromMap() also falls back to an old single `photoUrl`
+/// field so home cooks saved before this change still render correctly.
 class HomeCook {
   final String id;
   final String name;
@@ -55,7 +63,7 @@ class HomeCook {
   final bool isApproved;
   final bool isPending;
   final String? ghanaCardNumber;
-  final String? photoUrl;
+  final List<String> photoUrls;
   final String? ghanaCardPhotoUrl;
 
   const HomeCook({
@@ -73,11 +81,19 @@ class HomeCook {
     this.isApproved = false,
     this.isPending = true,
     this.ghanaCardNumber,
-    this.photoUrl,
+    this.photoUrls = const [],
     this.ghanaCardPhotoUrl,
   });
 
+  /// Convenience accessor for old call sites expecting a single photo
+  /// (e.g. a CircleAvatar backgroundImage) -- the first uploaded photo
+  /// doubles as the cover photo, same convention as Hotel.
+  String? get photoUrl => photoUrls.isNotEmpty ? photoUrls.first : null;
+
   factory HomeCook.fromMap(String id, Map<String, dynamic> map) {
+    final rawPhotoUrls = map['photoUrls'] as List?;
+    final legacyPhotoUrl = map['photoUrl'] as String?;
+
     return HomeCook(
       id: id,
       name: map['name'] as String? ?? '',
@@ -95,7 +111,12 @@ class HomeCook {
       isApproved: map['isApproved'] as bool? ?? false,
       isPending: map['isPending'] as bool? ?? true,
       ghanaCardNumber: map['ghanaCardNumber'] as String?,
-      photoUrl: map['photoUrl'] as String?,
+      // Prefer the new photoUrls list; fall back to wrapping an old
+      // single photoUrl so home cooks saved before this change still
+      // show their photo.
+      photoUrls: rawPhotoUrls != null
+          ? List<String>.from(rawPhotoUrls)
+          : (legacyPhotoUrl != null && legacyPhotoUrl.isNotEmpty ? [legacyPhotoUrl] : const []),
       ghanaCardPhotoUrl: map['ghanaCardPhotoUrl'] as String?,
     );
   }
@@ -115,7 +136,7 @@ class HomeCook {
       'isApproved': isApproved,
       'isPending': isPending,
       if (ghanaCardNumber != null) 'ghanaCardNumber': ghanaCardNumber,
-      if (photoUrl != null) 'photoUrl': photoUrl,
+      'photoUrls': photoUrls,
       if (ghanaCardPhotoUrl != null) 'ghanaCardPhotoUrl': ghanaCardPhotoUrl,
     };
   }

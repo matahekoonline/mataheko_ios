@@ -1,23 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import '../models/marketplace_item.dart';
 import '../services/marketplace_service.dart';
+import 'admin_marketplace_edit_screen.dart';
 
-/// Admin-only screen listing marketplace items awaiting approval.
-/// Reachable from wherever your other admin tools (e.g. Okada Riders
-/// management) are linked from — add a ListTile/IconButton there that
-/// pushes this screen.
-///
-/// NOTE on admin gating: this screen checks `users/{uid}.isAdmin == true`
-/// in Firestore before showing any content. If your app already has a
-/// dedicated admin-check helper (like the one used for the Okada Riders
-/// screen), swap `_checkIsAdmin()` below to call that instead so the
-/// logic stays in one place.
-class VerifyMarketplaceScreen extends StatelessWidget {
+class VerifyMarketplaceScreen extends StatefulWidget {
   const VerifyMarketplaceScreen({super.key});
 
-  Future<bool> _checkIsAdmin() async {
+  @override
+  State<VerifyMarketplaceScreen> createState() =>
+      _VerifyMarketplaceScreenState();
+}
+
+class _VerifyMarketplaceScreenState extends State<VerifyMarketplaceScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animation;
+
+  Future<bool> _isAdmin() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
     final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -25,27 +26,42 @@ class VerifyMarketplaceScreen extends StatelessWidget {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _animation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _animation.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
-        title: const Text('Verify Marketplace Items'),
-        centerTitle: true,
+        title: const Text(
+          'Marketplace Moderation',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF18212F),
+        elevation: 0,
       ),
       body: FutureBuilder<bool>(
-        future: _checkIsAdmin(),
+        future: _isAdmin(),
         builder: (context, adminSnap) {
           if (adminSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           if (adminSnap.data != true) {
             return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'You do not have permission to view this page.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
+              child: Text('You do not have permission to view this page.'),
             );
           }
 
@@ -53,15 +69,7 @@ class VerifyMarketplaceScreen extends StatelessWidget {
             stream: MarketplaceService.instance.streamPendingItems(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(
-                      'Could not load pending items: ${snapshot.error}',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                );
+                return Center(child: Text('Could not load listings: ${snapshot.error}'));
               }
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -69,15 +77,29 @@ class VerifyMarketplaceScreen extends StatelessWidget {
 
               final items = snapshot.data ?? const [];
               if (items.isEmpty) {
-                return const Center(child: Text('No items waiting for review. 🎉'));
+                return const _EmptyMarket();
               }
 
-              return ListView.separated(
-                padding: const EdgeInsets.all(12),
+              return ListView.builder(
+                padding: const EdgeInsets.all(14),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
-                  return _PendingItemCard(item: items[index]);
+                  final item = items[index];
+
+                  return FadeTransition(
+                    opacity: CurvedAnimation(
+                      parent: _animation,
+                      curve: Interval(
+                        (index * .05).clamp(0, .75),
+                        1,
+                        curve: Curves.easeOut,
+                      ),
+                    ),
+                    child: _MarketAdminCard(
+                      item: item,
+                      onChanged: () => setState(() {}),
+                    ),
+                  );
                 },
               );
             },
@@ -88,190 +110,282 @@ class VerifyMarketplaceScreen extends StatelessWidget {
   }
 }
 
-class _PendingItemCard extends StatefulWidget {
+class _MarketAdminCard extends StatefulWidget {
   final MarketplaceItem item;
-  const _PendingItemCard({required this.item});
+  final VoidCallback onChanged;
+
+  const _MarketAdminCard({
+    required this.item,
+    required this.onChanged,
+  });
 
   @override
-  State<_PendingItemCard> createState() => _PendingItemCardState();
+  State<_MarketAdminCard> createState() => _MarketAdminCardState();
 }
 
-class _PendingItemCardState extends State<_PendingItemCard> {
+class _MarketAdminCardState extends State<_MarketAdminCard> {
   bool _busy = false;
 
   Future<void> _approve() async {
     setState(() => _busy = true);
     try {
       await MarketplaceService.instance.approveItem(widget.item.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"${widget.item.title}" approved and live on the marketplace.')),
-        );
-      }
+      if (mounted) _toast('Listing approved.', good: true);
+      widget.onChanged();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not approve: $e')),
-        );
-      }
+      if (mounted) _toast('Could not approve: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _reject() async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reject item?'),
+      builder: (_) => AlertDialog(
+        title: const Text('Delete marketplace item?'),
         content: Text(
-          'This will permanently delete "${widget.item.title}". The seller will not be able to recover it.',
+          'Delete "${widget.item.title}" permanently? '
+          'This cannot be undone.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reject', style: TextStyle(color: Colors.red)),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red[700]),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+
+    if (ok != true) return;
 
     setState(() => _busy = true);
     try {
-      await MarketplaceService.instance.rejectItem(widget.item.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"${widget.item.title}" rejected and removed.')),
-        );
-      }
+      await MarketplaceService.instance.deleteItem(widget.item.id);
+      if (mounted) _toast('Listing deleted.');
+      widget.onChanged();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not reject: $e')),
-        );
-      }
+      if (mounted) _toast('Could not delete: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _edit() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AdminMarketplaceEditScreen(item: widget.item),
+      ),
+    );
+    if (changed == true) widget.onChanged();
+  }
+
+  void _toast(String text, {bool good = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: good ? const Color(0xFF166534) : null,
+          content: Text(text),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final cover = item.photoUrls.isNotEmpty ? item.photoUrls.first : null;
 
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
       clipBehavior: Clip.antiAlias,
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Color(0xFFE4E9F0)),
+      ),
+      child: Column(
+        children: [
+          if (cover != null)
+            Stack(
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: item.photoUrls.isEmpty
-                      ? Container(
-                    width: 72,
-                    height: 72,
-                    color: Colors.green[50],
-                    alignment: Alignment.center,
-                    child: Icon(Icons.inventory_2_outlined, color: Colors.green[300], size: 28),
-                  )
-                      : Image.network(
-                    item.photoUrls.first,
-                    width: 72,
-                    height: 72,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 72,
-                      height: 72,
-                      color: Colors.green[50],
-                      alignment: Alignment.center,
-                      child: Icon(Icons.inventory_2_outlined, color: Colors.green[300], size: 28),
-                    ),
+                Image.network(
+                  cover,
+                  width: double.infinity,
+                  height: 180,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _CoverPlaceholder(),
+                ),
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: _Pill(
+                    text: '${item.photoUrls.length}/4 photos',
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.price,
-                        style: TextStyle(color: Colors.green[800], fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.locationText,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (item.photoUrls.length > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            '${item.photoUrls.length} photos',
-                            style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                          ),
-                        ),
-                    ],
+              ],
+            )
+          else
+            const _CoverPlaceholder(),
+          Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
                   ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.price,
+                  style: const TextStyle(
+                    color: Color(0xFF166534),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '${item.locationText}  •  ${item.sellerPhone}',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 11.5),
+                ),
+                if (item.description.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    item.description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(height: 1.35, fontSize: 12.5),
+                  ),
+                ],
+                const SizedBox(height: 13),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _busy ? null : _edit,
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('Edit'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _busy ? null : _approve,
+                        icon: _busy
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.check_rounded, size: 18),
+                        label: const Text('Approve'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF166534),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: _busy ? null : _delete,
+                      tooltip: 'Delete',
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    ),
+                  ],
                 ),
               ],
             ),
-            if (item.description.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                item.description,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String text;
+
+  const _Pill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _CoverPlaceholder extends StatelessWidget {
+  const _CoverPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 180,
+      color: const Color(0xFFEAF2EC),
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.inventory_2_rounded,
+        size: 50,
+        color: Color(0xFF6BA481),
+      ),
+    );
+  }
+}
+
+class _EmptyMarket extends StatelessWidget {
+  const _EmptyMarket();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              size: 60,
+              color: Color(0xFF6BA481),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Marketplace is clear',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
               ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _reject,
-                    icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                    label: const Text('Reject', style: TextStyle(color: Colors.red)),
-                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _busy ? null : _approve,
-                    icon: _busy
-                        ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                        : const Icon(Icons.check, size: 18),
-                    label: const Text('Approve'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
+            ),
+            SizedBox(height: 5),
+            Text(
+              'There are no marketplace listings waiting for approval.',
+              textAlign: TextAlign.center,
             ),
           ],
         ),

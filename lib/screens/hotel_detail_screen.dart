@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/hotel.dart';
 import '../widgets/rating_display.dart';
+import '../widgets/provider_reviews_section.dart';
 
 /// Shows everything someone would want to check before calling to book:
 /// photos, price range, room types, amenities, check-in/out times, and
@@ -207,6 +208,9 @@ class _HotelDetailScreenState extends State<HotelDetailScreen> {
                       ],
                     ),
                   ],
+
+                  const SizedBox(height: 18),
+                  ProviderReviewsSection(collection: 'hotels', providerId: hotel.id, initialRating: hotel.rating, initialReviewCount: hotel.reviewCount),
 
                   const SizedBox(height: 28),
                   SizedBox(
