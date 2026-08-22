@@ -1,4 +1,4 @@
-name: Mataheko iOS Build
+name: Mataheko iOS TestFlight
 
 on:
   workflow_dispatch:
@@ -8,48 +8,83 @@ on:
 
 jobs:
   build-ios:
-    name: Build Mataheko iOS
-    runs-on: macos-15
+    name: Build and Sign Mataheko iOS
+    runs-on: macos-15-intel
 
     steps:
+      # ---------------------------------------------------------
+      # 1. Checkout
+      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ---------------------------------------------------------
+      # 2. Flutter
+      # ---------------------------------------------------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.0'
+          architecture: x64
           cache: true
 
-      - name: Flutter dependencies
+      - name: Show Flutter version
+        run: |
+          flutter --version
+          dart --version
+
+      # ---------------------------------------------------------
+      # 3. Flutter dependencies
+      # ---------------------------------------------------------
+      - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Install Apple certificate
+      # ---------------------------------------------------------
+      # 4. Install Apple Distribution certificate
+      # ---------------------------------------------------------
+      - name: Install Apple Distribution certificate
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           CERTIFICATE_PATH="$RUNNER_TEMP/apple_distribution.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/mataheko-signing.keychain-db"
 
           echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
 
-          security create-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
-          security default-keychain -s "$RUNNER_TEMP/build.keychain-db"
-          security unlock-keychain -p "" "$RUNNER_TEMP/build.keychain-db"
+          security create-keychain \
+            -p "temporary-password" \
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \
+            -lut 21600 \
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "temporary-password" \
+            "$KEYCHAIN_PATH"
 
           security import "$CERTIFICATE_PATH" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A \
             -t cert \
             -f pkcs12 \
-            -k "$RUNNER_TEMP/build.keychain-db"
+            -k "$KEYCHAIN_PATH"
 
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "" \
-            "$RUNNER_TEMP/build.keychain-db"
+          security list-keychain \
+            -d user \
+            -s "$KEYCHAIN_PATH"
 
+          security default-keychain \
+            -s "$KEYCHAIN_PATH"
+
+          security unlock-keychain \
+            -p "temporary-password" \
+            "$KEYCHAIN_PATH"
+
+      # ---------------------------------------------------------
+      # 5. Install provisioning profile
+      # ---------------------------------------------------------
       - name: Install provisioning profile
         env:
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
@@ -61,30 +96,91 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
           cp "$PROFILE_PATH" \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/Mataheko_App.mobileprovision"
+            "$HOME/Library/MobileDevice/Provisioning Profiles/3d5df408-bff9-4cf9-adb1-fbe73967e16e.mobileprovision"
 
-      - name: Verify signing assets
+          echo "Provisioning profile installed."
+
+      # ---------------------------------------------------------
+      # 6. Verify signing assets
+      # ---------------------------------------------------------
+      - name: Verify Apple signing assets
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain-db"
+          echo "Team ID: $APPLE_TEAM_ID"
 
+          echo ""
+          echo "Installed provisioning profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
+          echo ""
+          echo "Installed certificates:"
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$RUNNER_TEMP/mataheko-signing.keychain-db" || true
+
+      # ---------------------------------------------------------
+      # 7. Verify Xcode project signing configuration
+      # ---------------------------------------------------------
+      - name: Verify Runner signing configuration
+        run: |
+          echo "Checking Runner project..."
+
+          grep -n \
+            -E \
+            "CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER" \
+            ios/Runner.xcodeproj/project.pbxproj || true
+
+      # ---------------------------------------------------------
+      # 8. Install CocoaPods dependencies
+      # ---------------------------------------------------------
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: |
+          pod install --repo-update
+
+      # ---------------------------------------------------------
+      # 9. Build signed IPA
+      # ---------------------------------------------------------
       - name: Build signed IPA
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           flutter build ipa \
             --release \
             --export-options-plist=ios/ExportOptions.plist
 
+      # ---------------------------------------------------------
+      # 10. Show generated files
+      # ---------------------------------------------------------
+      - name: Show IPA files
+        run: |
+          echo "Generated IPA files:"
+          find build/ios -name "*.ipa" -print
+
+          echo ""
+          echo "Generated archives:"
+          find build/ios -name "*.xcarchive" -print
+
+      # ---------------------------------------------------------
+      # 11. Upload IPA artifact
+      # ---------------------------------------------------------
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-ipa
           path: build/ios/ipa/*.ipa
+          if-no-files-found: error
           retention-days: 7
 
+      # ---------------------------------------------------------
+      # 12. Upload XCArchive
+      # ---------------------------------------------------------
       - name: Upload XCArchive
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-archive
           path: build/ios/archive/*.xcarchive
+          if-no-files-found: warn
           retention-days: 7
