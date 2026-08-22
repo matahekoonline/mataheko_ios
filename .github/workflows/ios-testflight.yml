@@ -164,7 +164,37 @@ jobs:
           find build/ios -name "*.xcarchive" -print
 
       # ---------------------------------------------------------
-      # 11. Upload IPA artifact
+      # 11. Upload to App Store Connect
+      # ---------------------------------------------------------
+      - name: Upload to App Store Connect
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -e
+
+          API_KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$API_KEY_DIR"
+
+          printf '%s' "$APPSTORE_PRIVATE_KEY" \
+            > "$API_KEY_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+
+          IPA_PATH=$(find build/ios/ipa -name "*.ipa" | head -n 1)
+
+          echo "Uploading $IPA_PATH to App Store Connect..."
+
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            -f "$IPA_PATH" \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+          echo "Upload completed successfully."
+
+      # ---------------------------------------------------------
+      # 12. Upload IPA artifact
       # ---------------------------------------------------------
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -175,7 +205,7 @@ jobs:
           retention-days: 7
 
       # ---------------------------------------------------------
-      # 12. Upload XCArchive
+      # 13. Upload XCArchive
       # ---------------------------------------------------------
       - name: Upload XCArchive
         uses: actions/upload-artifact@v4
