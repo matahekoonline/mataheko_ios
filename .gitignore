@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Apple signing files
+apple_distribution.key
+apple_distribution.p12
+apple_distribution.csr
+distribution.pem
+distribution.cer
+Mataheko_App.mobileprovision
+*.mobileprovision
+*.p12
+*.cer
