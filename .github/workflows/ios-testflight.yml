@@ -9,7 +9,7 @@ on:
 jobs:
   build-ios:
     name: Build and Sign Mataheko iOS
-    runs-on: macos-15-intel
+    runs-on: macos-26
 
     steps:
       # ---------------------------------------------------------
@@ -25,7 +25,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.0'
-          architecture: x64
+          architecture: arm64
           cache: true
 
       - name: Show Flutter version
@@ -38,6 +38,12 @@ jobs:
       # ---------------------------------------------------------
       - name: Get Flutter dependencies
         run: flutter pub get
+
+      # ---------------------------------------------------------
+      # 3.5 Regenerate app icons (strip alpha channel for iOS)
+      # ---------------------------------------------------------
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
 
       # ---------------------------------------------------------
       # 4. Install Apple Distribution certificate
