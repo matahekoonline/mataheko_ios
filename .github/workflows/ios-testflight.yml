@@ -22,12 +22,15 @@ jobs:
       # ============================================================
       # 1. CHECKOUT
       # ============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
+
       # ============================================================
-      # 2. SET UP FLUTTER
+      # 2. FLUTTER
       # ============================================================
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -35,27 +38,32 @@ jobs:
           architecture: x64
           cache: true
 
-      - name: Show Flutter and Xcode versions
+      - name: Show versions
         run: |
           flutter --version
           dart --version
           xcodebuild -version
 
+
       # ============================================================
-      # 3. GET FLUTTER DEPENDENCIES
+      # 3. FLUTTER DEPENDENCIES
       # ============================================================
+
       - name: Get Flutter dependencies
         run: |
           flutter clean
           flutter pub get
 
+
       # ============================================================
       # 4. INSTALL APPLE DISTRIBUTION CERTIFICATE
       # ============================================================
+
       - name: Install Apple Distribution certificate
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
         run: |
           set -e
 
@@ -82,7 +90,6 @@ jobs:
             -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
-          echo ""
           echo "========================================"
           echo "IMPORTING APPLE DISTRIBUTION CERTIFICATE"
           echo "========================================"
@@ -107,18 +114,19 @@ jobs:
           security default-keychain \
             -s "$KEYCHAIN_PATH"
 
-          echo ""
           echo "Certificate installation completed."
 
+
       # ============================================================
-      # 5. VERIFY APPLE DISTRIBUTION CERTIFICATE
+      # 5. VERIFY CERTIFICATE
       # ============================================================
+
       - name: Verify Apple Distribution certificate
         run: |
           set -e
 
           echo "========================================"
-          echo "AVAILABLE CODE SIGNING IDENTITIES"
+          echo "CODE SIGNING IDENTITIES"
           echo "========================================"
 
           security find-identity \
@@ -126,9 +134,8 @@ jobs:
             -p codesigning \
             "$RUNNER_TEMP/build.keychain-db"
 
-          echo ""
           echo "========================================"
-          echo "CHECKING APPLE DISTRIBUTION"
+          echo "APPLE DISTRIBUTION CERTIFICATE"
           echo "========================================"
 
           security find-identity \
@@ -137,166 +144,177 @@ jobs:
             "$RUNNER_TEMP/build.keychain-db" \
             | grep "Apple Distribution"
 
-          echo ""
-          echo "Apple Distribution certificate found successfully."
+          echo "Apple Distribution certificate verified."
+
 
       # ============================================================
       # 6. INSTALL PROVISIONING PROFILE
       # ============================================================
+
       - name: Install provisioning profile
         env:
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+
         run: |
           set -e
 
           PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          PROFILE_DEST="$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
+
+          mkdir -p "$PROFILE_DIR"
 
           echo "========================================"
-          echo "DECODING PROVISIONING PROFILE"
+          echo "INSTALLING PROVISIONING PROFILE"
           echo "========================================"
 
           printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" \
             | base64 --decode > "$PROFILE_PATH"
 
-          mkdir -p "$PROFILE_DIR"
+          cp "$PROFILE_PATH" \
+            "$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
 
-          echo ""
-          echo "Installing provisioning profile..."
+          ls -lh "$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
 
-          cp "$PROFILE_PATH" "$PROFILE_DEST"
-
-          echo ""
-          echo "Installed:"
-          ls -lh "$PROFILE_DEST"
 
       # ============================================================
       # 7. VERIFY PROVISIONING PROFILE
       # ============================================================
+
       - name: Verify provisioning profile
         run: |
           set -e
 
           PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
 
-          echo "========================================"
-          echo "PROVISIONING PROFILE INFORMATION"
-          echo "========================================"
-
           security cms \
             -D \
             -i "$PROFILE_PATH" \
             > "$RUNNER_TEMP/profile.plist"
 
-          ACTUAL_NAME=$(
+          PROFILE_ACTUAL_NAME=$(
             /usr/libexec/PlistBuddy \
-              -c "Print :Name" \
-              "$RUNNER_TEMP/profile.plist"
+            -c "Print :Name" \
+            "$RUNNER_TEMP/profile.plist"
           )
 
-          ACTUAL_UUID=$(
+          PROFILE_ACTUAL_UUID=$(
             /usr/libexec/PlistBuddy \
-              -c "Print :UUID" \
-              "$RUNNER_TEMP/profile.plist"
+            -c "Print :UUID" \
+            "$RUNNER_TEMP/profile.plist"
           )
 
-          ACTUAL_TEAM=$(
+          PROFILE_ACTUAL_TEAM=$(
             /usr/libexec/PlistBuddy \
-              -c "Print :TeamIdentifier:0" \
-              "$RUNNER_TEMP/profile.plist"
+            -c "Print :TeamIdentifier:0" \
+            "$RUNNER_TEMP/profile.plist"
           )
 
-          ACTUAL_APP_ID=$(
+          PROFILE_ACTUAL_APP_ID=$(
             /usr/libexec/PlistBuddy \
-              -c "Print :Entitlements:application-identifier" \
-              "$RUNNER_TEMP/profile.plist"
+            -c "Print :Entitlements:application-identifier" \
+            "$RUNNER_TEMP/profile.plist"
           )
 
-          echo ""
-          echo "Profile Name:"
-          echo "$ACTUAL_NAME"
-
-          echo ""
-          echo "Profile UUID:"
-          echo "$ACTUAL_UUID"
-
-          echo ""
-          echo "Team Identifier:"
-          echo "$ACTUAL_TEAM"
-
-          echo ""
-          echo "Application Identifier:"
-          echo "$ACTUAL_APP_ID"
-
-          echo ""
           echo "========================================"
-          echo "VALIDATING PROFILE"
+          echo "PROVISIONING PROFILE INFORMATION"
           echo "========================================"
+
+          echo "Name: $PROFILE_ACTUAL_NAME"
+          echo "UUID: $PROFILE_ACTUAL_UUID"
+          echo "Team: $PROFILE_ACTUAL_TEAM"
+          echo "App ID: $PROFILE_ACTUAL_APP_ID"
 
           EXPECTED_APP_ID="${TEAM_ID}.${BUNDLE_ID}"
 
-          if [ "$ACTUAL_NAME" != "$PROFILE_NAME" ]; then
-            echo "ERROR: Provisioning profile name mismatch."
-            echo "Expected: $PROFILE_NAME"
-            echo "Actual:   $ACTUAL_NAME"
+          if [ "$PROFILE_ACTUAL_UUID" != "$PROFILE_UUID" ]; then
+            echo "ERROR: UUID mismatch"
             exit 1
           fi
 
-          if [ "$ACTUAL_UUID" != "$PROFILE_UUID" ]; then
-            echo "ERROR: Provisioning profile UUID mismatch."
-            echo "Expected: $PROFILE_UUID"
-            echo "Actual:   $ACTUAL_UUID"
+          if [ "$PROFILE_ACTUAL_TEAM" != "$TEAM_ID" ]; then
+            echo "ERROR: Team ID mismatch"
             exit 1
           fi
 
-          if [ "$ACTUAL_TEAM" != "$TEAM_ID" ]; then
-            echo "ERROR: Team ID mismatch."
-            echo "Expected: $TEAM_ID"
-            echo "Actual:   $ACTUAL_TEAM"
+          if [ "$PROFILE_ACTUAL_APP_ID" != "$EXPECTED_APP_ID" ]; then
+            echo "ERROR: Bundle ID mismatch"
             exit 1
           fi
 
-          if [ "$ACTUAL_APP_ID" != "$EXPECTED_APP_ID" ]; then
-            echo "ERROR: Application identifier mismatch."
-            echo "Expected: $EXPECTED_APP_ID"
-            echo "Actual:   $ACTUAL_APP_ID"
-            exit 1
-          fi
+          echo "Provisioning profile verified successfully."
 
-          echo ""
-          echo "========================================"
-          echo "PROFILE VALIDATION PASSED"
-          echo "========================================"
 
       # ============================================================
-      # 8. INSTALL COCOAPODS
+      # 8. COCOAPODS
       # ============================================================
+
       - name: Install CocoaPods
         run: |
           set -e
+
           cd ios
+
           pod install --repo-update
 
+
       # ============================================================
-      # 9. BUILD FLUTTER IOS WITHOUT SIGNING
+      # 9. IMPORTANT SIGNING SANITY CHECK
       # ============================================================
+
+      - name: Check Runner signing configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "RUNNER RELEASE SIGNING SETTINGS"
+          echo "========================================"
+
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -showBuildSettings \
+            | grep -E \
+              "PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER" \
+            || true
+
+
+      # ============================================================
+      # 10. FLUTTER BUILD WITHOUT SIGNING
+      # ============================================================
+
       - name: Build Flutter iOS without signing
         run: |
           set -e
 
           echo "========================================"
-          echo "BUILDING FLUTTER IOS WITHOUT SIGNING"
+          echo "BUILDING FLUTTER IOS"
           echo "========================================"
 
           flutter build ios \
             --release \
             --no-codesign
 
+
       # ============================================================
-      # 10. ARCHIVE IOS APP
+      # 11. ARCHIVE
+      #
+      # IMPORTANT:
+      #
+      # DO NOT pass:
+      # PROVISIONING_PROFILE_SPECIFIER
+      #
+      # DO NOT pass:
+      # CODE_SIGN_STYLE
+      #
+      # DO NOT pass:
+      # DEVELOPMENT_TEAM
+      #
+      # The Runner target already contains the signing settings.
+      # Dependencies must NOT receive the app provisioning profile.
       # ============================================================
-      - name: Archive iOS app with Apple Distribution signing
+
+      - name: Archive Mataheko
         run: |
           set -e
 
@@ -313,22 +331,19 @@ jobs:
             -sdk iphoneos \
             -archivePath "$ARCHIVE_PATH" \
             archive \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            "PROVISIONING_PROFILE_SPECIFIER[Runner]=$PROFILE_NAME"
+            ONLY_ACTIVE_ARCH=NO
 
-          echo ""
           echo "========================================"
           echo "ARCHIVE CREATED"
           echo "========================================"
 
           ls -lah "$ARCHIVE_PATH"
 
+
       # ============================================================
-      # 11. CREATE APP STORE EXPORT OPTIONS
+      # 12. CREATE EXPORT OPTIONS
       # ============================================================
+
       - name: Create App Store ExportOptions
         run: |
           set -e
@@ -338,6 +353,7 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+
               <key>method</key>
               <string>app-store</string>
 
@@ -353,28 +369,29 @@ jobs:
                   <string>${PROFILE_NAME}</string>
               </dict>
 
-              <key>compileBitcode</key>
-              <false/>
-
               <key>destination</key>
               <string>export</string>
 
               <key>stripSwiftSymbols</key>
               <true/>
 
+              <key>compileBitcode</key>
+              <false/>
+
               <key>manageAppVersionAndBuildNumber</key>
               <false/>
+
           </dict>
           </plist>
           EOF
 
-          echo "ExportOptions.plist created."
-
           plutil -lint "$RUNNER_TEMP/ExportOptions.plist"
 
+
       # ============================================================
-      # 12. EXPORT SIGNED IPA
+      # 13. EXPORT IPA
       # ============================================================
+
       - name: Export signed IPA
         run: |
           set -e
@@ -385,7 +402,7 @@ jobs:
           mkdir -p "$EXPORT_PATH"
 
           echo "========================================"
-          echo "EXPORTING SIGNED IPA"
+          echo "EXPORTING APP STORE IPA"
           echo "========================================"
 
           xcodebuild \
@@ -394,17 +411,18 @@ jobs:
             -exportPath "$EXPORT_PATH" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
-          echo ""
           echo "========================================"
           echo "IPA EXPORT COMPLETED"
           echo "========================================"
 
           ls -lah "$EXPORT_PATH"
 
+
       # ============================================================
-      # 13. PREPARE BUILD ARTIFACTS
+      # 14. PREPARE ARTIFACTS
       # ============================================================
-      - name: Prepare build artifacts
+
+      - name: Prepare artifacts
         run: |
           set -e
 
@@ -417,45 +435,24 @@ jobs:
           cp -R "$RUNNER_TEMP/Mataheko.xcarchive" \
             build/ios/archive/Mataheko.xcarchive
 
-          echo ""
           echo "========================================"
-          echo "FINAL BUILD ARTIFACTS"
-          echo "========================================"
-
-          echo ""
-          echo "IPA:"
-          ls -lah build/ios/ipa/
-
-          echo ""
-          echo "XCARCHIVE:"
-          ls -lah build/ios/archive/
-
-      # ============================================================
-      # 14. VERIFY IPA
-      # ============================================================
-      - name: Verify IPA
-        run: |
-          set -e
-
-          IPA_COUNT=$(find build/ios/ipa -name "*.ipa" | wc -l | tr -d ' ')
-
-          if [ "$IPA_COUNT" -eq 0 ]; then
-            echo "ERROR: No IPA was created."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "IPA SUCCESSFULLY CREATED"
+          echo "IPA"
           echo "========================================"
 
-          find build/ios/ipa \
-            -name "*.ipa" \
-            -print
+          ls -lah build/ios/ipa
+
+          echo "========================================"
+          echo "ARCHIVE"
+          echo "========================================"
+
+          ls -lah build/ios/archive
+
 
       # ============================================================
       # 15. UPLOAD IPA
       # ============================================================
-      - name: Upload IPA artifact
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-ipa
@@ -463,10 +460,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+
       # ============================================================
       # 16. UPLOAD XCARCHIVE
       # ============================================================
-      - name: Upload XCArchive artifact
+
+      - name: Upload XCArchive
         uses: actions/upload-artifact@v4
         with:
           name: mataheko-ios-archive
@@ -474,25 +473,28 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+
       # ============================================================
-      # 17. CLEAN UP SIGNING ASSETS
+      # 17. CLEANUP
       # ============================================================
-      - name: Clean up signing assets
+
+      - name: Cleanup signing assets
         if: ${{ always() }}
         run: |
           set +e
 
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
-          PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
-          echo "Cleaning up signing assets..."
+          security delete-keychain \
+            "$KEYCHAIN_PATH" \
+            2>/dev/null || true
 
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-
-          rm -f "$PROFILE_PATH"
           rm -f "$RUNNER_TEMP/apple_distribution.p12"
           rm -f "$RUNNER_TEMP/Mataheko_App.mobileprovision"
           rm -f "$RUNNER_TEMP/profile.plist"
           rm -f "$RUNNER_TEMP/ExportOptions.plist"
+
+          rm -f \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
           echo "Cleanup completed."
