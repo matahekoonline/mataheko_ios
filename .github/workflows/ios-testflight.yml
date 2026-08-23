@@ -36,6 +36,9 @@ jobs:
       # ---------------------------------------------------------
       # 3. Flutter dependencies
       # ---------------------------------------------------------
+      - name: Clean Flutter project
+        run: flutter clean
+      
       - name: Get Flutter dependencies
         run: flutter pub get
 
