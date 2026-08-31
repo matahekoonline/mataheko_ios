@@ -58,11 +58,12 @@ jobs:
         run: |
           CERTIFICATE_PATH="$RUNNER_TEMP/apple_distribution.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/mataheko-signing.keychain-db"
+          KEYCHAIN_PASSWORD="temporary-password"
 
           echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
 
           security create-keychain \
-            -p "temporary-password" \
+            -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
           security set-keychain-settings \
@@ -70,15 +71,28 @@ jobs:
             "$KEYCHAIN_PATH"
 
           security unlock-keychain \
-            -p "temporary-password" \
+            -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
+          # NOTE: "-t cert" was removed here. That flag told "security import"
+          # to only import the certificate portion of the .p12, silently
+          # dropping the private key that's bundled with it. Without the
+          # private key, there is no complete signing identity, which is
+          # why the build failed with "No development certificates available".
+          # The -T flags grant codesign/security silent access to the key.
           security import "$CERTIFICATE_PATH" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A \
-            -t cert \
             -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
+            -k "$KEYCHAIN_PATH" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          # Required on modern macOS so codesign can use the imported key
+          # non-interactively during CI (no keychain-unlock prompt).
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
 
           security list-keychain \
             -d user \
@@ -88,7 +102,7 @@ jobs:
             -s "$KEYCHAIN_PATH"
 
           security unlock-keychain \
-            -p "temporary-password" \
+            -p "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
       # ---------------------------------------------------------
