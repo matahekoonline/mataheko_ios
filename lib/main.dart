@@ -122,10 +122,26 @@ class _AppStartupScreenState extends State<AppStartupScreen> {
       // non-admins, so this is safe to call unconditionally here.
       AuthService.instance.authStateChanges.listen((user) {
         if (user != null) {
-          NotificationService.instance.registerAdminDeviceToken();
-          NotificationService.instance.startAdminActionMonitor();
+          // Never allow APNs/FCM token registration or Firestore admin
+          // monitoring to hold up the UI or login flow.
+          unawaited(
+            NotificationService.instance
+                .registerAdminDeviceToken()
+                .timeout(const Duration(seconds: 10))
+                .catchError((e) {
+              debugPrint('[Startup] Admin FCM registration skipped: $e');
+            }),
+          );
+          unawaited(
+            NotificationService.instance
+                .startAdminActionMonitor()
+                .timeout(const Duration(seconds: 10))
+                .catchError((e) {
+              debugPrint('[Startup] Admin notification monitor skipped: $e');
+            }),
+          );
         } else {
-          NotificationService.instance.stopAdminActionMonitor();
+          unawaited(NotificationService.instance.stopAdminActionMonitor());
         }
       });
     } catch (e) {

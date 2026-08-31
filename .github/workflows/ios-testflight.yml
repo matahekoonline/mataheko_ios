@@ -16,7 +16,7 @@ jobs:
       # 1. Checkout
       # ---------------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ---------------------------------------------------------
       # 2. Flutter
@@ -118,10 +118,67 @@ jobs:
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-          cp "$PROFILE_PATH" \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/3d5df408-bff9-4cf9-adb1-fbe73967e16e.mobileprovision"
+          # Install using the UUID embedded in the profile instead of a
+          # hard-coded UUID. This prevents Xcode from selecting the wrong
+          # profile when Apple regenerates it.
+          PROFILE_UUID=$(
+            security cms -D -i "$PROFILE_PATH" |
+            /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin
+          )
 
-          echo "Provisioning profile installed."
+          if [ -z "$PROFILE_UUID" ]; then
+            echo "ERROR: Could not read provisioning profile UUID."
+            exit 1
+          fi
+
+          cp "$PROFILE_PATH" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+
+          echo "Provisioning profile installed: $PROFILE_UUID"
+
+      # ---------------------------------------------------------
+      # 5.5 Validate Push Notifications entitlement in profile
+      # ---------------------------------------------------------
+      - name: Validate Push Notifications provisioning profile
+        run: |
+          set -e
+
+          PROFILE_FILE=$(find "$HOME/Library/MobileDevice/Provisioning Profiles"             -name "*.mobileprovision" -print -quit)
+
+          if [ -z "$PROFILE_FILE" ]; then
+            echo "ERROR: No provisioning profile was installed."
+            exit 1
+          fi
+
+          security cms -D -i "$PROFILE_FILE" > "$RUNNER_TEMP/profile.plist"
+
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/profile.plist")
+          APS_ENV=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$RUNNER_TEMP/profile.plist" 2>/dev/null || true)
+
+          echo "Provisioning profile: $PROFILE_NAME"
+          echo "Application identifier: $PROFILE_APP_ID"
+          echo "aps-environment: ${APS_ENV:-MISSING}"
+
+          if [ -z "$APS_ENV" ]; then
+            echo ""
+            echo "ERROR: The Apple provisioning profile does NOT contain aps-environment."
+            echo "Fix this in Apple Developer:"
+            echo "1. Open Certificates, Identifiers & Profiles."
+            echo "2. Open App ID com.mataheko.community."
+            echo "3. Enable Push Notifications."
+            echo "4. Save the App ID."
+            echo "5. Create a NEW App Store provisioning profile for this App ID."
+            echo "6. Replace the APPLE_PROVISIONING_PROFILE_BASE64 GitHub secret."
+            exit 1
+          fi
+
+          if [ "$APS_ENV" != "production" ]; then
+            echo "ERROR: App Store/TestFlight builds require aps-environment=production."
+            exit 1
+          fi
+
+          echo "Push Notifications entitlement is present in the provisioning profile."
 
       # ---------------------------------------------------------
       # 6. Verify signing assets

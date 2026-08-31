@@ -823,8 +823,25 @@ class NotificationService {
         return;
       }
 
+      // On iOS, FCM's token depends on APNs registration. Waiting briefly
+      // for the APNs token avoids a race during cold start while still
+      // guaranteeing that notification setup cannot hang forever.
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          await _messaging
+              .getAPNSToken()
+              .timeout(const Duration(seconds: 8));
+        } catch (e) {
+          debugPrint(
+            '[NotificationService] APNs token not ready yet: $e',
+          );
+        }
+      }
+
       final token =
-      await _messaging.getToken();
+      await _messaging
+          .getToken()
+          .timeout(const Duration(seconds: 8));
 
       if (token == null ||
           token.trim().isEmpty) {
@@ -1036,7 +1053,10 @@ class NotificationService {
 
   Future<void> _printFCMToken() async {
     final token =
-    await getToken();
+    await getToken().timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => null,
+    );
 
     if (token == null) {
       return;
