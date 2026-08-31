@@ -14,7 +14,7 @@
     <key>provisioningProfiles</key>
     <dict>
         <key>com.mataheko.community</key>
-        <string>Mataheko App</string>
+        <string>Mataheko App Store</string>
     </dict>
 
     <key>compileBitcode</key>
