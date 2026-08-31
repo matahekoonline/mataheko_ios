@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -85,10 +87,34 @@ class _AppStartupScreenState extends State<AppStartupScreen> {
         options: DefaultFirebaseOptions.currentPlatform,
       ).timeout(const Duration(seconds: 10));
 
+      // Navigate to the app immediately once Firebase core is ready.
+      // Notification setup (below) is push-notification plumbing only —
+      // it must never block the user from reaching the home screen.
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+      );
+
       // Sets up FCM permission request + the foreground local-notification
       // listener. Without this call, notify_admin.php can fire pushes all
       // day and the app will never display or even receive them.
-      await NotificationService.instance.initialize();
+      //
+      // Run this in the background (not awaited) with its own timeout so
+      // that if APNs/token registration hangs on iOS (e.g. Push Notifications
+      // capability or APNs key not fully configured), it can never block
+      // startup again — the app is already on the home screen by then.
+      unawaited(
+        NotificationService.instance.initialize().timeout(
+          const Duration(seconds: 15),
+          onTimeout: () {
+            debugPrint(
+              '[Startup] NotificationService.initialize() timed out — '
+              'continuing without it. Check Push Notifications capability '
+              'and APNs key configuration for iOS.',
+            );
+          },
+        ),
+      );
 
       // Registers/refreshes the admin's FCM token whenever auth state
       // changes (login, logout, app relaunch with a persisted session) --
@@ -102,11 +128,6 @@ class _AppStartupScreenState extends State<AppStartupScreen> {
           NotificationService.instance.stopAdminActionMonitor();
         }
       });
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-      );
     } catch (e) {
       debugPrint('Firebase init failed or timed out: $e');
       if (!mounted) return;
