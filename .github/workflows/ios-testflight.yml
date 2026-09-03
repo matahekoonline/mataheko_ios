@@ -108,7 +108,7 @@ jobs:
       # ---------------------------------------------------------
       # 5. Install provisioning profile
       # ---------------------------------------------------------
-            - name: Install provisioning profile
+      - name: Install provisioning profile
         env:
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
         run: |
