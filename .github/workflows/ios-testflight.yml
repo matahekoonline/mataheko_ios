@@ -108,33 +108,84 @@ jobs:
       # ---------------------------------------------------------
       # 5. Install provisioning profile
       # ---------------------------------------------------------
-      - name: Install provisioning profile
+            - name: Install provisioning profile
         env:
           APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
         run: |
+          set -euo pipefail
+
           PROFILE_PATH="$RUNNER_TEMP/Mataheko_App.mobileprovision"
 
-          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          echo "Checking provisioning profile secret..."
 
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          if [ -z "${APPLE_PROVISIONING_PROFILE_BASE64:-}" ]; then
+            echo "ERROR: APPLE_PROVISIONING_PROFILE_BASE64 is empty."
+            exit 1
+          fi
 
-          # Install using the UUID embedded in the profile instead of a
-          # hard-coded UUID. This prevents Xcode from selecting the wrong
-          # profile when Apple regenerates it.
+          SECRET_LENGTH=${#APPLE_PROVISIONING_PROFILE_BASE64}
+          echo "Secret length: $SECRET_LENGTH characters"
+
+          if [ "$SECRET_LENGTH" -lt 1000 ]; then
+            echo "ERROR: Provisioning profile secret is unexpectedly short."
+            exit 1
+          fi
+
+          echo "Decoding provisioning profile..."
+
+          printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" |
+            tr -d '\r\n ' |
+            base64 -D > "$PROFILE_PATH"
+
+          if [ ! -s "$PROFILE_PATH" ]; then
+            echo "ERROR: Decoded provisioning profile is empty."
+            exit 1
+          fi
+
+          PROFILE_SIZE=$(wc -c < "$PROFILE_PATH" | tr -d ' ')
+          echo "Decoded profile size: $PROFILE_SIZE bytes"
+
+          echo "Testing provisioning profile with Apple security CMS..."
+
+          security cms -D \
+            -i "$PROFILE_PATH" \
+            > "$RUNNER_TEMP/profile.plist"
+
+          echo "Provisioning profile parsed successfully."
+
           PROFILE_UUID=$(
-            security cms -D -i "$PROFILE_PATH" |
-            /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              "$RUNNER_TEMP/profile.plist"
           )
+
+          PROFILE_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_APP_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:application-identifier" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          echo "Profile name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Application identifier: $PROFILE_APP_ID"
 
           if [ -z "$PROFILE_UUID" ]; then
             echo "ERROR: Could not read provisioning profile UUID."
             exit 1
           fi
 
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+
           cp "$PROFILE_PATH" \
             "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
-          echo "Provisioning profile installed: $PROFILE_UUID"
+          echo "Provisioning profile installed successfully."
 
       # ---------------------------------------------------------
       # 5.5 Validate Push Notifications entitlement in profile
