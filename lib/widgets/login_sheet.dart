@@ -265,6 +265,44 @@ class _LoginSheetState extends State<LoginSheet> {
     );
   }
 
+  Future<void> _submitApple() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final user = await AuthService.instance.signInWithApple();
+      if (user == null) {
+        // cancelled
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      final isNew = await AuthService.instance.isNewAppleUser(user.uid);
+      if (isNew && mounted) {
+        // First time Apple sign-in — ask which role before finishing
+        final role = await _askRolePicker();
+        if (role != null) {
+          await AuthService.instance.setUserRole(user.uid, role);
+          await _afterRegistration(role);
+          return;
+        }
+        // Picker was escaped (e.g. a back-gesture) without a choice —
+        // this is a brand-new Apple account with nothing saved for it
+        // yet, so sign them back out rather than silently completing.
+        await AuthService.instance.signOut();
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      setState(() => _error = _friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   String _friendlyError(Object e) {
     final msg = e.toString();
     if (msg.contains('user-not-found')) return 'No account found with that email address.';
@@ -338,6 +376,17 @@ class _LoginSheetState extends State<LoginSheet> {
               icon: const Icon(Icons.g_mobiledata, size: 26),
               label: const Text('Continue with Google'),
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _loading ? null : _submitApple,
+              icon: const Icon(Icons.apple, size: 22),
+              label: const Text('Continue with Apple'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.black,
+                side: const BorderSide(color: Colors.black),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
             const SizedBox(height: 16),
             Row(children: [
