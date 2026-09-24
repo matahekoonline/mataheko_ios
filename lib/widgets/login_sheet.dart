@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../models/user_role.dart';
 import '../services/auth_service.dart';
@@ -207,7 +208,7 @@ class _LoginSheetState extends State<LoginSheet> {
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      setState(() => _error = _friendlyError(e));
+      setState(() => _error = _friendlySocialError(e, 'Google'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -297,10 +298,35 @@ class _LoginSheetState extends State<LoginSheet> {
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      setState(() => _error = _friendlyError(e));
+      setState(() => _error = _friendlySocialError(e, 'Apple'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Error text for Google / Apple sign-in. These flows have no password, so
+  /// Firebase's generic `invalid-credential` must never be shown as
+  /// "Incorrect password" here -- it means the provider's token was
+  /// rejected (usually app / Firebase configuration), not a typo.
+  String _friendlySocialError(Object e, String provider) {
+    final code = e is FirebaseAuthException ? e.code : '';
+    debugPrint('$provider sign-in failed: ${e.runtimeType} $code $e');
+    final msg = e.toString();
+
+    if (code == 'invalid-credential' || msg.contains('invalid-credential')) {
+      return '$provider sign-in could not be verified. Please try again, or use email and password.';
+    }
+    if (code == 'account-exists-with-different-credential' ||
+        msg.contains('account-exists-with-different-credential')) {
+      return 'That email is already registered with a different sign-in method. Please log in with that method instead.';
+    }
+    if (code == 'network-request-failed' || msg.contains('network-request-failed')) {
+      return 'No internet connection. Please check your network and try again.';
+    }
+    if (msg.contains('too-many-requests')) {
+      return 'Too many attempts. Please wait a moment and try again.';
+    }
+    return '$provider sign-in failed. Please try again.';
   }
 
   String _friendlyError(Object e) {
