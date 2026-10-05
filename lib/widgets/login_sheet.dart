@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../models/user_role.dart';
 import '../services/auth_service.dart';
+import '../services/moderation_service.dart';
+import '../screens/terms_screen.dart';
 import 'bio_data_screen.dart';
 
 class LoginSheet extends StatefulWidget {
@@ -228,6 +230,30 @@ class _LoginSheetState extends State<LoginSheet> {
   Future<void> _afterRegistration(UserRole role) async {
     if (!mounted) return;
 
+    // Terms of Use must be explicitly accepted before any account is
+    // considered complete — required by App Store Review Guideline 1.2.
+    // Declining (or backing out) is treated exactly like abandoning
+    // BioDataScreen below: nothing is left saved.
+    final agreedToTerms = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TermsScreen()),
+    );
+
+    if (agreedToTerms != true) {
+      await AuthService.instance.deleteIncompleteRegistration();
+      if (mounted) {
+        setState(() => _error = 'You need to accept the Terms of Use to create an account.');
+      }
+      return;
+    }
+
+    final uid = AuthService.instance.currentUser?.uid;
+    if (uid != null) {
+      await ModerationService.instance.recordTermsAcceptance(uid, kTermsVersion);
+    }
+
+    if (!mounted) return;
+
     final completed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => BioDataScreen(role: role)),
@@ -314,7 +340,10 @@ class _LoginSheetState extends State<LoginSheet> {
     final msg = e.toString();
 
     if (code == 'invalid-credential' || msg.contains('invalid-credential')) {
-      return '$provider sign-in could not be verified. Please try again, or use email and password.';
+      // TEMP DEBUG: showing the raw Firebase error on-screen so we can see
+      // exactly why the credential is rejected without Xcode console access.
+      // Revert this to the friendly-only message once the real cause is found.
+      return '$provider sign-in could not be verified. Please try again, or use email and password.\n\n[debug] $msg';
     }
     if (code == 'account-exists-with-different-credential' ||
         msg.contains('account-exists-with-different-credential')) {
