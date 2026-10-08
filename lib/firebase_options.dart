@@ -50,7 +50,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCjJLUamSVsXny-53tFaEuDBfSCMANK1Ho',
+    apiKey: 'AIzaSyALW_yRT95rb2sTvE4jjWMX7wiX9tYwJMU',
     appId: '1:621284698388:android:da399048281db856dfba01',
     messagingSenderId: '621284698388',
     projectId: 'mataheko-7c9ae',
@@ -59,12 +59,12 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyALW_yRT95rb2sTvE4jjWMX7wiX9tYwJMU',
-    appId: '1:621284698388:ios:8fe246a3dd538defdfba01',
+    appId: '1:621284698388:ios:16a53a5a7380d18edfba01',
     messagingSenderId: '621284698388',
     projectId: 'mataheko-7c9ae',
     storageBucket: 'mataheko-7c9ae.firebasestorage.app',
     androidClientId: '621284698388-1o7q2tvnpdr6nj2gfatev22043pv9a0n.apps.googleusercontent.com',
-    iosClientId: '621284698388-ho6gdm9jpruf9pe84lh5n6pmk73mgrn1.apps.googleusercontent.com',
-    iosBundleId: 'com.example.matahekoApp',
+    iosClientId: '621284698388-mos9cfcjmm0qt3ei06v96s5utb7ftktm.apps.googleusercontent.com',
+    iosBundleId: 'com.mataheko.community',
   );
 }
