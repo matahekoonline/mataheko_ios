@@ -92,7 +92,7 @@ class AuthService {
   /// Firebase receives back.
   String _generateNonce([int length = 32]) {
     const charset =
-        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._';
     final random = Random.secure();
     return List.generate(length, (_) => charset[random.nextInt(charset.length)])
         .join();
@@ -104,9 +104,23 @@ class AuthService {
     return digest.toString();
   }
 
+  /// Decodes the payload of Apple's identity token (a JWT) so we can see what
+  /// Apple actually signed: `aud` (must equal the app's bundle id) and
+  /// `nonce` (must equal sha256(rawNonce)). Used for diagnostics only.
+  Map<String, dynamic> _decodeJwtPayload(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return {};
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      return jsonDecode(payload) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
+  }
+
   Future<User?> signInWithApple() async {
     final rawNonce = _generateNonce();
-    final nonce = _sha256ofString(rawNonce);
+    final hashedNonce = _sha256ofString(rawNonce);
 
     late final AuthorizationCredentialAppleID appleCredential;
     try {
@@ -115,19 +129,45 @@ class AuthService {
           AppleIDAuthorizationScopes.email,
           AppleIDAuthorizationScopes.fullName,
         ],
-        nonce: nonce,
+        // Apple gets the HASHED nonce; Firebase gets the RAW one below.
+        nonce: hashedNonce,
       );
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) return null;
       rethrow;
     }
 
+    final identityToken = appleCredential.identityToken;
+    if (identityToken == null || identityToken.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'missing-apple-identity-token',
+        message: 'Apple did not return an identity token.',
+      );
+    }
+
     final oauthCredential = OAuthProvider('apple.com').credential(
-      idToken: appleCredential.identityToken,
+      idToken: identityToken,
       rawNonce: rawNonce,
+      // Firebase can use the authorization code to complete the exchange
+      // with Apple, which avoids "Invalid OAuth response" on some setups.
+      accessToken: appleCredential.authorizationCode,
     );
 
-    final result = await _auth.signInWithCredential(oauthCredential);
+    UserCredential result;
+    try {
+      result = await _auth.signInWithCredential(oauthCredential);
+    } on FirebaseAuthException catch (e) {
+      // Attach what Apple actually signed so the on-screen debug line shows
+      // the real cause (wrong audience vs. nonce mismatch vs. console setup).
+      final claims = _decodeJwtPayload(identityToken);
+      final diag = 'aud=${claims['aud']} | '
+          'nonceMatches=${claims['nonce'] == hashedNonce} | '
+          'expectedAud=com.mataheko.community';
+      throw FirebaseAuthException(
+        code: e.code,
+        message: '${e.message} [$diag]',
+      );
+    }
     final user = result.user;
 
     // Apple only ever sends the user's name on the very first
